@@ -35,6 +35,7 @@ Default port: 3458
 
 import json
 import os
+import re
 import sys
 import html
 import mimetypes
@@ -193,6 +194,91 @@ class AnnotationStore:
 
 
 _store = AnnotationStore()
+
+
+# ── 3b. Blob identity & metadata ───────────────────────────
+BLOB_NAME_RE = re.compile(r'^([0-9a-f]{8})-(.+)$')
+
+
+def parse_blob_name(name: str) -> tuple[str, str] | None:
+    """Split a stored filename like 'a1b2c3d4-report.md' into (id, filename).
+
+    Returns None if name doesn't match the blob naming convention (e.g.
+    '.annotations.json', or a pre-migration plain filename).
+    """
+    m = BLOB_NAME_RE.match(name)
+    if not m:
+        return None
+    return m.group(1), m.group(2)
+
+
+def is_valid_upload_filename(filename: str) -> bool:
+    """Reject filenames that could escape the flat shared/ namespace.
+
+    This is the actual enforcement for "no subdirectories in shared/" —
+    the CRUD API is the only sanctioned write path, so rejecting '/' here
+    makes a nested path structurally impossible to create through it.
+    """
+    if not filename:
+        return False
+    if '/' in filename or '\x00' in filename:
+        return False
+    if '..' in filename:
+        return False
+    if filename.startswith('.'):
+        return False
+    return True
+
+
+def generate_blob_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def blob_metadata(fs_path: Path) -> dict | None:
+    """Build the JSON-serializable metadata dict for a blob file.
+
+    Returns None if fs_path's name doesn't match the blob naming convention.
+    """
+    parsed = parse_blob_name(fs_path.name)
+    if parsed is None:
+        return None
+    blob_id, filename = parsed
+    stat = fs_path.stat()
+    mime, _ = mimetypes.guess_type(filename)
+    if not mime:
+        mime = 'application/octet-stream'
+    return {
+        'id': blob_id,
+        'filename': filename,
+        'url': f'{PREFIX}/{fs_path.name}',
+        'size': stat.st_size,
+        'mime': mime,
+        'created_at': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+    }
+
+
+def list_blobs() -> list[dict]:
+    """Return metadata for every blob under SHARED_DIR, sorted by filename."""
+    blobs = []
+    for p in SHARED_DIR.iterdir():
+        if not p.is_file():
+            continue
+        meta = blob_metadata(p)
+        if meta is not None:
+            blobs.append(meta)
+    blobs.sort(key=lambda b: b['filename'].lower())
+    return blobs
+
+
+def find_blob_path(blob_id: str) -> Path | None:
+    """Find the on-disk path for a blob id, or None if no blob has that id."""
+    for p in SHARED_DIR.iterdir():
+        if not p.is_file():
+            continue
+        parsed = parse_blob_name(p.name)
+        if parsed and parsed[0] == blob_id:
+            return p
+    return None
 
 
 # ── 4. Utility functions ───────────────────────────────────

@@ -183,6 +183,26 @@ If it's not set, ask the user for the base URL rather than guessing.
   `<br>`/`<img>`, etc.) which isn't available in the standard library without
   adding a dependency, conflicting with this project's zero-dependency goal.
   Worth revisiting if that constraint ever relaxes.
+- **Directory index: file-type icons.** Currently just 📁 (directory) vs 📄
+  (any file). Distinguish photo/video/code/doc (txt, md) with a per-type icon.
+- **Directory index: tighten the table layout.** Reduce wrapping of size
+  units and long filenames (maybe allow a row to wrap onto a second line
+  instead of squeezing everything onto one), and improve column alignment/
+  justification for the timestamp column.
+- **Directory index: dark/light mode toggle.** Currently always the dark
+  GitHub-style theme.
+- **Directory index: relative/fuzzy modified time.** Show "2 hours ago" /
+  "7 days ago" (low precision is fine) in the same column as the exact
+  timestamp, with a way to toggle between the two.
+- **Directory index: an options flyout** for per-viewer preferences that
+  don't belong as URL params or server config — default sort column,
+  bounding-box annotation mode (once built, see above), and the real/relative
+  timestamp toggle (see above) would all live here.
+- **Annotation UI wording.** The "+ General comment" button and its
+  "(general comment — not tied to a selection)" list label are functional
+  but wordy — the word "general" in particular reads oddly. Wants a more
+  minimal treatment (shorter label, maybe an icon instead of explanatory
+  parenthetical text) once there's a concrete direction to implement against.
 
 ## License
 

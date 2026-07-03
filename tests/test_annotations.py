@@ -198,6 +198,43 @@ class TestAnnotationAPI(unittest.TestCase):
         status = self._delete('no-such-id')
         self.assertEqual(status, 404)
 
+    def test_post_creates_unanchored_annotation_with_null_offsets(self):
+        status, body = self._post({
+            'file': '/picture.jpg', 'type': 'comment',
+            'comment': 'nice photo', 'author': 'hal',
+        })
+        self.assertEqual(status, 201)
+        self.assertIsNone(body['offset_start'])
+        self.assertIsNone(body['offset_end'])
+        self.assertEqual(body['selected_text'], '')
+
+    def test_post_creates_unanchored_annotation_with_explicit_null_offsets(self):
+        status, body = self._post({
+            'file': '/picture.jpg', 'type': 'comment', 'comment': 'nice photo',
+            'offset_start': None, 'offset_end': None, 'author': 'hal',
+        })
+        self.assertEqual(status, 201)
+        self.assertIsNone(body['offset_start'])
+        self.assertIsNone(body['offset_end'])
+
+    def test_post_rejects_only_one_offset_set(self):
+        status, body = self._post({
+            'file': '/picture.jpg', 'type': 'comment', 'comment': 'x',
+            'offset_start': 0, 'author': 'hal',
+        })
+        self.assertEqual(status, 400)
+        self.assertIn('error', body)
+
+    def test_get_returns_unanchored_annotation_alongside_anchored(self):
+        self._post({'file': '/mixed.md', 'type': 'comment', 'comment': 'general note', 'author': 'hal'})
+        self._post({'file': '/mixed.md', 'selected_text': 'x', 'offset_start': 0,
+                     'offset_end': 1, 'type': 'upvote', 'comment': '', 'author': 'hal'})
+        status, body = self._get('/mixed.md')
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body), 2)
+        self.assertTrue(any(a['offset_start'] is None for a in body))
+        self.assertTrue(any(a['offset_start'] is not None for a in body))
+
 
 if __name__ == '__main__':
     unittest.main()

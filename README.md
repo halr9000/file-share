@@ -100,6 +100,20 @@ environment variable (if set) to build full share URLs by prefixing it to the
 `url` field the API returns — e.g. `$FILE_SHARE_BASE_URL` + `/files/a1b2c3d4-report.md`.
 If it's not set, ask the user for the base URL rather than guessing.
 
+## Backlog / ideas
+
+- **Bounding-box image annotation.** Annotations currently anchor to a text
+  character range (or nothing, for a general/unanchored comment). Extending
+  the schema with an optional region (e.g. `{x, y, width, height}` as
+  fractions of image dimensions) would let a viewer draw a box on an image
+  preview and comment on that specific area, the same way text selection
+  works for documents.
+- **Optional real-time object detection to suggest bounding boxes.** As a
+  follow-on to the above: run a lightweight local object-detection model
+  (e.g. a YOLO variant) against uploaded images to propose candidate boxes
+  a viewer could pick from instead of drawing one by hand. Strictly optional
+  — the manual bounding-box flow above should work standalone without it.
+
 ## License
 
 MIT — see `LICENSE`.

@@ -1,6 +1,7 @@
 """Tests for file-share blob CRUD helpers and API."""
 import http.client
 import json
+import re
 import sys
 import tempfile
 import threading
@@ -270,15 +271,32 @@ class TestBlobAPI(unittest.TestCase):
         resp = conn.getresponse()
         return resp.status, resp.read().decode('utf-8', errors='replace')
 
+    def _entries_from_directory_html(self, html_body: str) -> list:
+        match = re.search(r'const ENTRIES = (\[.*?\]);', html_body, re.DOTALL)
+        self.assertIsNotNone(match, 'ENTRIES array not found in directory listing page')
+        return json.loads(match.group(1))
+
     def test_directory_listing_hides_id_prefix(self):
         _, blob = self._post_blob('visible-name.md', b'# hi')
         status, html_body = self._get_html('/files/')
         self.assertEqual(status, 200)
-        self.assertIn('visible-name.md', html_body)
+        entries = self._entries_from_directory_html(html_body)
+        by_href = {e['href']: e for e in entries}
+        entry = by_href[f'/files/{blob["id"]}-visible-name.md']
         # The href must still route to the id-prefixed file on disk; only the
-        # visible anchor text should hide the id.
-        self.assertIn(f'>visible-name.md</a>', html_body)
-        self.assertNotIn(f'>{blob["id"]}-visible-name.md</a>', html_body)
+        # displayed name should hide the id.
+        self.assertEqual(entry['name'], 'visible-name.md')
+
+    def test_directory_listing_includes_mtime_and_size(self):
+        _, blob = self._post_blob('mtime-test.md', b'hello world')
+        status, html_body = self._get_html('/files/')
+        self.assertEqual(status, 200)
+        entries = self._entries_from_directory_html(html_body)
+        by_href = {e['href']: e for e in entries}
+        entry = by_href[f'/files/{blob["id"]}-mtime-test.md']
+        self.assertIsNotNone(entry['mtime'])
+        self.assertEqual(entry['size'], len(b'hello world'))
+        self.assertFalse(entry['isDir'])
 
     def test_preview_page_shows_clean_filename_and_ids_for_annotations(self):
         _, blob = self._post_blob('preview-me.md', b'# Title')

@@ -1699,8 +1699,40 @@ class GistHandler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, ValueError):
             return None
 
+    def _handle_create_blob(self, parsed):
+        query = urllib.parse.parse_qs(parsed.query)
+        filename = query.get('filename', [None])[0]
+        if not filename or not is_valid_upload_filename(filename):
+            self._send_json(400, {'error': (
+                'filename must be non-empty and must not contain "/", "..", '
+                'a NUL byte, or start with "."'
+            )})
+            return
+
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length) if length else b''
+
+        fs_path = None
+        for _ in range(5):
+            blob_id = generate_blob_id()
+            candidate = SHARED_DIR / f'{blob_id}-{filename}'
+            if not candidate.exists():
+                fs_path = candidate
+                break
+        if fs_path is None:
+            self._send_json(500, {'error': 'Could not allocate a unique blob id'})
+            return
+
+        fs_path.write_bytes(body)
+        self._send_json(201, blob_metadata(fs_path))
+
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+
+        if parsed.path == '/files-api/blobs':
+            self._handle_create_blob(parsed)
+            return
+
         if parsed.path != '/files-api/annotations':
             self._send_json(404, {'error': 'Not Found'})
             return

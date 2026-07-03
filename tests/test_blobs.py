@@ -97,5 +97,60 @@ class TestBlobMetadata(unittest.TestCase):
         self.assertIsNone(fss.find_blob_path('deadbeef'))
 
 
+class TestBlobAPI(unittest.TestCase):
+    """Integration tests: spins up a real server, hits it with http.client."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = tempfile.TemporaryDirectory()
+        fss.SHARED_DIR = Path(cls.tmpdir.name)
+        fss.ANNOTATIONS_FILE = fss.SHARED_DIR / '.annotations.json'
+        fss._store = fss.AnnotationStore(fss.ANNOTATIONS_FILE)
+        cls.server = ThreadingHTTPServer(('127.0.0.1', 0), fss.GistHandler)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever)
+        cls.thread.daemon = True
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.tmpdir.cleanup()
+
+    def _post_blob(self, filename: str, body: bytes):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        conn.request('POST', f'/files-api/blobs?filename={filename}', body=body,
+                     headers={'Content-Length': str(len(body))})
+        resp = conn.getresponse()
+        data = resp.read()
+        return resp.status, json.loads(data) if data else {}
+
+    def test_post_creates_blob_with_metadata(self):
+        status, body = self._post_blob('report.md', b'# Report')
+        self.assertEqual(status, 201)
+        self.assertRegex(body['id'], r'^[0-9a-f]{8}$')
+        self.assertEqual(body['filename'], 'report.md')
+        self.assertEqual(body['url'], f'/files/{body["id"]}-report.md')
+        self.assertEqual(body['size'], 8)
+
+    def test_post_two_blobs_same_filename_get_distinct_ids(self):
+        _, first = self._post_blob('dup.md', b'one')
+        _, second = self._post_blob('dup.md', b'two')
+        self.assertNotEqual(first['id'], second['id'])
+        self.assertNotEqual(first['url'], second['url'])
+
+    def test_post_rejects_filename_with_slash(self):
+        status, body = self._post_blob('sub%2Fpath.md', b'x')
+        self.assertEqual(status, 400)
+        self.assertIn('error', body)
+
+    def test_post_rejects_missing_filename(self):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        conn.request('POST', '/files-api/blobs', body=b'x', headers={'Content-Length': '1'})
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 400)
+        resp.read()
+
+
 if __name__ == '__main__':
     unittest.main()

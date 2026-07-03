@@ -10,6 +10,49 @@ Built for AI agents to manage shared files on a human's behalf (upload a
 file, get a share URL, read feedback, revise), but works fine as a plain
 file server for humans too.
 
+## Why this exists
+
+It started as a quick way for an agent to share a markdown file while working
+through a plan with me. I already have plenty of ways to read files off disk
+— even from my phone — but what I actually wanted was: agent sends a Telegram
+message, I tap the link, I'm reading the doc. No hunting through a filesystem
+first.
+
+Then, probably after one too many document reviews at work, I wanted to leave
+comments the agent could read back — the same idea behind Antigravity's
+review annotations, if you've used it. So the preview page grew an
+annotation layer: highlight some text, leave an upvote/downvote/comment, and
+the agent can fetch it and act on it.
+
+From there it picked up the rest of what a preview page needs: line
+wrapping and pretty-printing for minified JSON/XML, syntax highlighting,
+markdown rendered to HTML, and inline image preview — with a "Raw" button
+that always gets you the unmodified original file, straight download.
+Image and video preview came essentially free once syntax-highlighted code
+worked, since it's just native HTML5 `<img>`/`<video>`/`<audio>` — which
+opens the door to some interesting image/video review and editing workflows
+down the line.
+
+It's tuned for mobile first (that's where the Telegram-link workflow lives)
+but works just as well on a full-size screen for a longer review session.
+
+The project ships with an agent skill (`skills/file-share/SKILL.md`) that
+tells any agent how the CRUD and annotation APIs work, so once you're done
+leaving feedback, the agent already knows where to find it — no separate
+explanation needed each time.
+
+Most of one particular day's changes were about making the tool
+agent-agnostic and moving it onto a proper CRUD API instead of the
+file-copy approach it was originally built with, before there was much
+guidance to do otherwise. It also moved out of its original home inside a
+specific agent's workspace, so it can be handed to any agent on any
+harness — this repo is the result.
+
+If you're always working directly inside a coding agent with full
+filesystem access (Codex, Claude Code, etc.), you probably don't need this —
+you can just read the file. It earns its keep when you're working from a
+messaging client instead, with no direct filesystem access of your own.
+
 ## Requirements
 
 Python 3.9+, standard library only. No `pip install` needed.

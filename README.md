@@ -126,6 +126,52 @@ If it's not set, ask the user for the base URL rather than guessing.
 
 ## Backlog / ideas
 
+Phased so related items land in dependency order — each phase is small,
+shippable, and doesn't block on a later one.
+
+**Phase 1 — finish what's started, low-risk polish**
+- **Security sweep (remaining item).** Found and fixed one `innerHTML` issue
+  already: the annotation panel interpolated `selected_text`/`comment`/`author`
+  into `innerHTML` unescaped (stored XSS via any annotation POST — no
+  file-write access needed) — now built via DOM APIs (`textContent`) instead.
+  Found but **not yet fixed**: the markdown table-of-contents flyout
+  re-injects each rendered heading's `textContent` into `innerHTML`, which
+  could produce broken/unexpected markup for a heading containing literal
+  `<`/`&` characters (needs file-write access to exploit, since it comes from
+  the document's own already-rendered heading text — narrower blast radius
+  than the annotation bug, but still worth fixing the same way).
+- **Directory index: file-type icons.** Currently just 📁 (directory) vs 📄
+  (any file). Distinguish photo/video/code/doc (txt, md) with a per-type icon.
+- **Directory index: tighten the table layout.** Reduce wrapping of size
+  units and long filenames (maybe allow a row to wrap onto a second line
+  instead of squeezing everything onto one), and improve column alignment/
+  justification for the timestamp column.
+
+**Phase 2 — directory index viewer experience.** The two toggles are
+prerequisites for the flyout, so build them first and let the flyout be the
+container that ties them together.
+- **Dark/light mode toggle.** Currently always the dark GitHub-style theme.
+- **Relative/fuzzy modified time.** Show "2 hours ago" / "7 days ago" (low
+  precision is fine) in the same column as the exact timestamp, with a way
+  to toggle between the two.
+- **An options flyout** for per-viewer preferences that don't belong as URL
+  params or server config — default sort column and the two toggles above
+  would live here first; bounding-box annotation mode (Phase 4) joins later.
+
+**Phase 3 — portability & distribution.** Verify cross-platform support
+before building an installer on top of it, so the installer doesn't ship a
+broken path for macOS/Windows.
+- **Cross-platform support (macOS, Windows).** The server itself is pure
+  Python stdlib and should already run on both; what's unverified is the
+  deployment story (the systemd example is Linux-only) and any path-handling
+  assumptions (POSIX permissions, `/`-only path separators) that haven't been
+  exercised outside Linux.
+- **One-line quick-start installer** (`curl ... | bash` on macOS/Linux,
+  `iwr ... | iex` on Windows) once this is published, so a first-time user
+  doesn't need to manually clone + configure.
+
+**Phase 4 — bounding-box annotation.** The larger feature; object detection
+is an explicit optional follow-on, not a prerequisite.
 - **Bounding-box image annotation.** Annotations currently anchor to a text
   character range (or nothing, for a general/unanchored comment). Extending
   the schema with an optional region (e.g. `{x, y, width, height}` as
@@ -137,25 +183,8 @@ If it's not set, ask the user for the base URL rather than guessing.
   (e.g. a YOLO variant) against uploaded images to propose candidate boxes
   a viewer could pick from instead of drawing one by hand. Strictly optional
   — the manual bounding-box flow above should work standalone without it.
-- **Security sweep.** A focused pass over path handling, filename validation,
-  and remaining `innerHTML` usages. Found and fixed one during this session:
-  the annotation panel interpolated `selected_text`/`comment`/`author` into
-  `innerHTML` unescaped (stored XSS via any annotation POST — no file-write
-  access needed) — now built via DOM APIs (`textContent`) instead. Found but
-  **not yet fixed**: the markdown table-of-contents flyout re-injects each
-  rendered heading's `textContent` into `innerHTML`, which could produce
-  broken/unexpected markup for a heading containing literal `<`/`&`
-  characters (needs file-write access to exploit, since it comes from the
-  document's own already-rendered heading text — narrower blast radius than
-  the annotation bug, but still worth fixing the same way).
-- **Cross-platform support (macOS, Windows).** The server itself is pure
-  Python stdlib and should already run on both; what's unverified is the
-  deployment story (the systemd example is Linux-only) and any path-handling
-  assumptions (POSIX permissions, `/`-only path separators) that haven't been
-  exercised outside Linux.
-- **One-line quick-start installer** (`curl ... | bash` on macOS/Linux,
-  `iwr ... | iex` on Windows) once this is published, so a first-time user
-  doesn't need to manually clone + configure.
+
+**Parked — not phased yet**
 - **Beautify minified JS and HTML in the code preview**, matching the
   minified-JSON and minified-XML pretty-printing already implemented (both
   reformat safely using stdlib `json`/`xml.dom.minidom`). Reliable JS/HTML
@@ -163,27 +192,13 @@ If it's not set, ask the user for the base URL rather than guessing.
   easy to break on regex literals, template strings, unclosed void tags like
   `<br>`/`<img>`, etc.) which isn't available in the standard library without
   adding a dependency, conflicting with this project's zero-dependency goal.
-  Worth revisiting if that constraint ever relaxes.
-- **Directory index: file-type icons.** Currently just 📁 (directory) vs 📄
-  (any file). Distinguish photo/video/code/doc (txt, md) with a per-type icon.
-- **Directory index: tighten the table layout.** Reduce wrapping of size
-  units and long filenames (maybe allow a row to wrap onto a second line
-  instead of squeezing everything onto one), and improve column alignment/
-  justification for the timestamp column.
-- **Directory index: dark/light mode toggle.** Currently always the dark
-  GitHub-style theme.
-- **Directory index: relative/fuzzy modified time.** Show "2 hours ago" /
-  "7 days ago" (low precision is fine) in the same column as the exact
-  timestamp, with a way to toggle between the two.
-- **Directory index: an options flyout** for per-viewer preferences that
-  don't belong as URL params or server config — default sort column,
-  bounding-box annotation mode (once built, see above), and the real/relative
-  timestamp toggle (see above) would all live here.
+  Blocked until that constraint relaxes.
 - **Annotation UI wording.** The "+ General comment" button and its
   "(general comment — not tied to a selection)" list label are functional
   but wordy — the word "general" in particular reads oddly. Wants a more
   minimal treatment (shorter label, maybe an icon instead of explanatory
-  parenthetical text) once there's a concrete direction to implement against.
+  parenthetical text) once there's a concrete direction to implement
+  against; small enough to slot into any phase once decided.
 
 ## License
 

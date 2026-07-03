@@ -126,6 +126,12 @@ class TestBlobAPI(unittest.TestCase):
         data = resp.read()
         return resp.status, json.loads(data) if data else {}
 
+    def _get(self, path: str):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        conn.request('GET', path)
+        resp = conn.getresponse()
+        return resp.status, json.loads(resp.read())
+
     def test_post_creates_blob_with_metadata(self):
         status, body = self._post_blob('report.md', b'# Report')
         self.assertEqual(status, 201)
@@ -160,6 +166,25 @@ class TestBlobAPI(unittest.TestCase):
         self.assertEqual(status, 201)
         self.assertEqual(second['id'], 'ffffffff')
         self.assertNotEqual(second['id'], colliding_id)
+
+    def test_get_list_returns_all_blobs(self):
+        self._post_blob('list-a.md', b'a')
+        self._post_blob('list-b.md', b'b')
+        status, body = self._get('/files-api/blobs')
+        self.assertEqual(status, 200)
+        filenames = {b['filename'] for b in body}
+        self.assertIn('list-a.md', filenames)
+        self.assertIn('list-b.md', filenames)
+
+    def test_get_single_blob_by_id(self):
+        _, created = self._post_blob('single.md', b'hello')
+        status, body = self._get(f'/files-api/blobs/{created["id"]}')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['filename'], 'single.md')
+
+    def test_get_single_blob_unknown_id_returns_404(self):
+        status, body = self._get('/files-api/blobs/deadbeef')
+        self.assertEqual(status, 404)
 
 
 if __name__ == '__main__':

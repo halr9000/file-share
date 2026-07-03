@@ -1817,6 +1817,20 @@ class GistHandler(BaseHTTPRequestHandler):
             self._send_json(200, _store.get(file_param))
             return
 
+        # Blob API
+        if url_path == '/files-api/blobs':
+            self._send_json(200, list_blobs())
+            return
+
+        if url_path.startswith('/files-api/blobs/'):
+            blob_id = url_path[len('/files-api/blobs/'):]
+            fs_path = find_blob_path(blob_id)
+            if fs_path is None:
+                self._send_json(404, {'error': 'Blob not found'})
+                return
+            self._send_json(200, blob_metadata(fs_path))
+            return
+
         # Strip /files prefix
         if url_path.startswith(PREFIX + '/'):
             rel_path = url_path[len(PREFIX):]  # e.g. /vcc/send-to-jeeves.tsk.xml

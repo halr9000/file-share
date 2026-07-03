@@ -287,6 +287,13 @@ class TestBlobAPI(unittest.TestCase):
         self.assertIn('preview-me.md', html_body)
         self.assertIn(f"ANN_FILE = '{blob['id']}'", html_body)
 
+    def test_preview_page_breadcrumb_has_no_duplicate_files_segment(self):
+        _, blob = self._post_blob('crumb-test.md', b'# hi')
+        status, html_body = self._get_html(f'/files/{blob["id"]}-crumb-test.md')
+        self.assertEqual(status, 200)
+        self.assertNotIn('/files/files/', html_body)
+        self.assertNotIn('>files/</a>', html_body)
+
 
 if __name__ == '__main__':
     unittest.main()

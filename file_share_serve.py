@@ -515,8 +515,9 @@ PREVIEW_HTML_TEMPLATE = '''\
     /* copy toast */
     #toast {{
       position: fixed;
-      bottom: 24px;
-      right: 24px;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
       background: #238636;
       color: #fff;
       padding: 8px 16px;
@@ -525,6 +526,7 @@ PREVIEW_HTML_TEMPLATE = '''\
       opacity: 0;
       transition: opacity 0.3s;
       pointer-events: none;
+      z-index: 1000;
     }}
 
     /* Annotation highlights via CSS Custom Highlight API */
@@ -1275,8 +1277,14 @@ PREVIEW_HTML_TEMPLATE = '''\
       _selectionTimer = setTimeout(checkSelection, 80);
     }}, {{ passive: true }});
     document.addEventListener('pointercancel', () => {{
+      // Mobile long-press-to-select-word (no drag) often fires pointercancel
+      // instead of pointerup, e.g. when the OS hands off to its native word
+      // selection UI. Check for a selection here too, or single-word taps
+      // silently never open the action sheet.
       _pointerActive = false;
       clearTimeout(_pointerTimer);
+      clearTimeout(_selectionTimer);
+      _selectionTimer = setTimeout(checkSelection, 80);
     }}, {{ passive: true }});
 
     // Part B: Desktop mouse drag — capture selection immediately on mouseup
@@ -1984,7 +1992,8 @@ class GistHandler(BaseHTTPRequestHandler):
 
     def build_breadcrumb(self, url_path):
         """Build a breadcrumb trail for the URL path."""
-        parts = url_path.strip('/').split('/')
+        rel_path = url_path[len(PREFIX):] if url_path.startswith(PREFIX) else url_path
+        parts = rel_path.strip('/').split('/')
         crumbs = [f'<a href="{PREFIX}/">/files/</a>']
         accumulated = PREFIX
         for i, part in enumerate(parts):

@@ -85,6 +85,19 @@ class TestAnnotationStore(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(len(self.store.get('/f.md')), 50)
 
+    def test_delete_by_file_removes_all_matching_annotations(self):
+        self.store.add('a1b2c3d4', 'foo', 0, 3, 'upvote', '', 'hal')
+        self.store.add('a1b2c3d4', 'bar', 4, 7, 'comment', 'note', 'hal')
+        self.store.add('other-id', 'baz', 0, 3, 'upvote', '', 'hal')
+        count = self.store.delete_by_file('a1b2c3d4')
+        self.assertEqual(count, 2)
+        self.assertEqual(len(self.store.get('a1b2c3d4')), 0)
+        self.assertEqual(len(self.store.get('other-id')), 1)
+
+    def test_delete_by_file_returns_zero_when_no_match(self):
+        count = self.store.delete_by_file('no-such-id')
+        self.assertEqual(count, 0)
+
 
 class TestAnnotationAPI(unittest.TestCase):
     """Integration tests: spins up a real server, hits it with http.client."""

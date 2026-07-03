@@ -179,6 +179,16 @@ class AnnotationStore:
                 return True
             return False
 
+    def delete_by_file(self, file_key: str) -> int:
+        """Delete every annotation for the given file key. Returns count deleted."""
+        with self._lock:
+            original_len = len(self._data)
+            self._data = [a for a in self._data if a['file'] != file_key]
+            deleted = original_len - len(self._data)
+            if deleted:
+                self._save()
+            return deleted
+
     def update(self, ann_id: str, comment: str | None = None, ann_type: str | None = None) -> dict | None:
         """Update comment and/or type. Returns the updated dict, or None if not found."""
         with self._lock:

@@ -264,6 +264,29 @@ class TestBlobAPI(unittest.TestCase):
         self.assertEqual(first_status, 204)
         self.assertEqual(second_status, 404)
 
+    def _get_html(self, path: str):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        conn.request('GET', path)
+        resp = conn.getresponse()
+        return resp.status, resp.read().decode('utf-8', errors='replace')
+
+    def test_directory_listing_hides_id_prefix(self):
+        _, blob = self._post_blob('visible-name.md', b'# hi')
+        status, html_body = self._get_html('/files/')
+        self.assertEqual(status, 200)
+        self.assertIn('visible-name.md', html_body)
+        # The href must still route to the id-prefixed file on disk; only the
+        # visible anchor text should hide the id.
+        self.assertIn(f'>visible-name.md</a>', html_body)
+        self.assertNotIn(f'>{blob["id"]}-visible-name.md</a>', html_body)
+
+    def test_preview_page_shows_clean_filename_and_ids_for_annotations(self):
+        _, blob = self._post_blob('preview-me.md', b'# Title')
+        status, html_body = self._get_html(f'/files/{blob["id"]}-preview-me.md')
+        self.assertEqual(status, 200)
+        self.assertIn('preview-me.md', html_body)
+        self.assertIn(f"ANN_FILE = '{blob['id']}'", html_body)
+
 
 if __name__ == '__main__':
     unittest.main()

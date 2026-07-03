@@ -1946,19 +1946,20 @@ class GistHandler(BaseHTTPRequestHandler):
             rows.append(f'<tr><td><span class="icon">📁</span><a href="{parent}">..</a></td><td class="size">—</td></tr>')
 
         for entry in entries:
-            name = html.escape(entry.name)
+            parsed = parse_blob_name(entry.name) if entry.is_file() else None
+            display_name = html.escape(parsed[1] if parsed else entry.name)
             if entry.is_dir():
-                href = url_path + name + '/'
+                href = url_path + html.escape(entry.name) + '/'
                 icon = '📁'
                 size_str = '—'
             else:
-                href = url_path + name
+                href = url_path + html.escape(entry.name)
                 icon = '📄'
                 try:
                     size_str = format_size(entry.stat().st_size)
                 except OSError:
                     size_str = '—'
-            rows.append(f'<tr><td><span class="icon">{icon}</span><a href="{html.escape(href)}">{name}</a></td><td class="size">{size_str}</td></tr>')
+            rows.append(f'<tr><td><span class="icon">{icon}</span><a href="{href}">{display_name}</a></td><td class="size">{size_str}</td></tr>')
 
         path_display = html.escape(url_path)
         body = DIR_HTML_TEMPLATE.format(
@@ -1980,7 +1981,9 @@ class GistHandler(BaseHTTPRequestHandler):
         for i, part in enumerate(parts):
             accumulated += '/' + part
             if i == len(parts) - 1:
-                crumbs.append(html.escape(part))
+                parsed = parse_blob_name(part)
+                display = parsed[1] if parsed else part
+                crumbs.append(html.escape(display))
             else:
                 crumbs.append(f'<a href="{html.escape(accumulated + "/")}">{html.escape(part)}/</a>')
         return ' '.join(crumbs)
@@ -1988,7 +1991,8 @@ class GistHandler(BaseHTTPRequestHandler):
     def serve_preview(self, fs_path, url_path):
         stat = fs_path.stat()
         size = stat.st_size
-        filename = fs_path.name
+        parsed_blob = parse_blob_name(fs_path.name)
+        filename = parsed_blob[1] if parsed_blob else fs_path.name
 
         mime, _ = mimetypes.guess_type(str(fs_path))
         if not mime:
@@ -2075,7 +2079,7 @@ class GistHandler(BaseHTTPRequestHandler):
             wrap_btn = ''
 
         breadcrumb = self.build_breadcrumb(url_path)
-        ann_file_key = url_path[len(PREFIX):]
+        ann_file_key = parsed_blob[0] if parsed_blob else url_path[len(PREFIX):]
 
         page = PREVIEW_HTML_TEMPLATE.format(
             title=html.escape(filename),

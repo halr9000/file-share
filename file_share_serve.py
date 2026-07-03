@@ -1787,6 +1787,31 @@ class GistHandler(BaseHTTPRequestHandler):
         else:
             self._send_json(404, {'error': 'Annotation not found'})
 
+    def do_PUT(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if not parsed.path.startswith('/files-api/blobs/'):
+            self._send_json(404, {'error': 'Not Found'})
+            return
+
+        blob_id = parsed.path[len('/files-api/blobs/'):]
+        if not blob_id or '/' in blob_id:
+            self._send_json(404, {'error': 'Not Found'})
+            return
+
+        fs_path = find_blob_path(blob_id)
+        if fs_path is None:
+            self._send_json(404, {'error': 'Blob not found'})
+            return
+
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length) if length else b''
+        fs_path.write_bytes(body)
+
+        drained = _store.delete_by_file(blob_id)
+        meta = blob_metadata(fs_path)
+        meta['drained_annotations'] = drained
+        self._send_json(200, meta)
+
     def do_PATCH(self):
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip('/').split('/')

@@ -186,6 +186,54 @@ class TestBlobAPI(unittest.TestCase):
         status, body = self._get('/files-api/blobs/deadbeef')
         self.assertEqual(status, 404)
 
+    def _put_blob(self, blob_id: str, body: bytes):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        conn.request('PUT', f'/files-api/blobs/{blob_id}', body=body,
+                     headers={'Content-Length': str(len(body))})
+        resp = conn.getresponse()
+        data = resp.read()
+        return resp.status, json.loads(data) if data else {}
+
+    def _post_annotation(self, file_key: str):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        payload = json.dumps({
+            'file': file_key, 'selected_text': 'x', 'offset_start': 0,
+            'offset_end': 1, 'type': 'upvote', 'comment': '', 'author': 'hal',
+        }).encode()
+        conn.request('POST', '/files-api/annotations', body=payload,
+                     headers={'Content-Type': 'application/json',
+                              'Content-Length': str(len(payload))})
+        resp = conn.getresponse()
+        resp.read()
+
+    def test_put_replaces_content_same_id_and_url(self):
+        _, created = self._post_blob('rev.md', b'v1')
+        status, body = self._put_blob(created['id'], b'v2 longer')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['id'], created['id'])
+        self.assertEqual(body['url'], created['url'])
+        self.assertEqual(body['size'], len(b'v2 longer'))
+
+    def test_put_drains_only_that_blobs_annotations(self):
+        _, blob_a = self._post_blob('drain-a.md', b'a')
+        _, blob_b = self._post_blob('drain-b.md', b'b')
+        self._post_annotation(blob_a['id'])
+        self._post_annotation(blob_a['id'])
+        self._post_annotation(blob_b['id'])
+
+        status, body = self._put_blob(blob_a['id'], b'a-revised')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['drained_annotations'], 2)
+
+        _, remaining_a = self._get(f'/files-api/annotations?file={blob_a["id"]}')
+        _, remaining_b = self._get(f'/files-api/annotations?file={blob_b["id"]}')
+        self.assertEqual(remaining_a, [])
+        self.assertEqual(len(remaining_b), 1)
+
+    def test_put_unknown_id_returns_404(self):
+        status, body = self._put_blob('deadbeef', b'x')
+        self.assertEqual(status, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,30 @@
+# Example systemd user-service unit for file-share.
+#
+# This is a template, not a ready-to-use file: adjust the paths below to
+# wherever you deploy the code and data, then install it as
+# ~/.config/systemd/user/file-share.service (or /etc/systemd/system/ for a
+# system-wide service) and run:
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now file-share.service
+#
+# Convention used here: keep the deployed code copy (ExecStart) separate from
+# your git working tree, so `git pull` in the repo never touches what's
+# actually running. Redeploy by copying file_share_serve.py over the deployed
+# path and restarting the service.
+
+[Unit]
+Description=file-share server
+After=network.target
+
+[Service]
+Type=simple
+Environment=FILE_SHARE_DIR=/opt/file-share/data
+ExecStart=/usr/bin/python3 /opt/file-share/app/file_share_serve.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

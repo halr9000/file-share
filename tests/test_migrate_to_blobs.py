@@ -76,5 +76,27 @@ class TestMigrateToBlobs(unittest.TestCase):
         self.assertTrue(self.annotations_file.exists())
 
 
+class TestResolveSharedDir(unittest.TestCase):
+
+    def test_env_var_wins(self):
+        result = migrate_mod.resolve_shared_dir(
+            ['migrate_to_blobs.py'], {'FILE_SHARE_DIR': '/from/env'})
+        self.assertEqual(result, Path('/from/env'))
+
+    def test_falls_back_to_argv(self):
+        result = migrate_mod.resolve_shared_dir(
+            ['migrate_to_blobs.py', '/from/argv'], {})
+        self.assertEqual(result, Path('/from/argv'))
+
+    def test_env_var_takes_precedence_over_argv(self):
+        result = migrate_mod.resolve_shared_dir(
+            ['migrate_to_blobs.py', '/from/argv'], {'FILE_SHARE_DIR': '/from/env'})
+        self.assertEqual(result, Path('/from/env'))
+
+    def test_raises_when_neither_set(self):
+        with self.assertRaises(SystemExit):
+            migrate_mod.resolve_shared_dir(['migrate_to_blobs.py'], {})
+
+
 if __name__ == '__main__':
     unittest.main()

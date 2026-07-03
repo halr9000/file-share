@@ -5,14 +5,15 @@ and remap .annotations.json file keys from path strings to blob ids.
 Safe to re-run: files already in <id>-<filename> form and annotations
 already keyed by a bare 8-hex id are left untouched.
 
-Usage: python3 scripts/migrate_to_blobs.py
+Usage: FILE_SHARE_DIR=/path/to/shared python3 scripts/migrate_to_blobs.py
+   or: python3 scripts/migrate_to_blobs.py /path/to/shared
 """
 import json
+import os
 import re
+import sys
 import uuid
 from pathlib import Path
-
-DEFAULT_SHARED_DIR = Path('/home/halr9000/shared')
 
 BLOB_NAME_RE = re.compile(r'^[0-9a-f]{8}-.+$')
 BLOB_ID_RE = re.compile(r'^[0-9a-f]{8}$')
@@ -69,6 +70,20 @@ def migrate(shared_dir: Path, annotations_file: Path) -> dict:
     return {'renamed': renamed, 'remapped': remapped}
 
 
+def resolve_shared_dir(argv, environ) -> Path:
+    """Resolve the shared dir from FILE_SHARE_DIR env var or argv[1].
+
+    Raises SystemExit with a helpful message if neither is set.
+    """
+    value = environ.get('FILE_SHARE_DIR') or (argv[1] if len(argv) > 1 else None)
+    if not value:
+        raise SystemExit(
+            'Set FILE_SHARE_DIR env var or pass the shared directory as an argument.'
+        )
+    return Path(value)
+
+
 if __name__ == '__main__':
-    annotations_file = DEFAULT_SHARED_DIR / '.annotations.json'
-    migrate(DEFAULT_SHARED_DIR, annotations_file)
+    shared_dir = resolve_shared_dir(sys.argv, os.environ)
+    annotations_file = shared_dir / '.annotations.json'
+    migrate(shared_dir, annotations_file)

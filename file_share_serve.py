@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 file-share-serve.py
-Gist-style file preview server for /home/halr9000/shared/
+Gist-style file preview server for a flat blob-store directory.
 
-Serves files under the /files/ path prefix so the tailscale-proxy
-can route /files/ → this server.
+Serves files under the /files/ path prefix. Configure the served
+directory and port via the FILE_SHARE_DIR and PORT env vars (see README).
 
 
 - Default: serves a GitHub Gist-style HTML preview page
@@ -1011,6 +1011,15 @@ PREVIEW_HTML_TEMPLATE = '''\
 
     const ANN_FILE = '{ann_file_key}';
 
+    function getAnnotatorName() {{
+      let name = localStorage.getItem('fileShareAuthorName');
+      if (!name) {{
+        name = (prompt('Your name (for annotations):', '') || '').trim() || 'anonymous';
+        localStorage.setItem('fileShareAuthorName', name);
+      }}
+      return name;
+    }}
+
     const supportsHighlightAPI = typeof CSS !== 'undefined' && CSS.highlights;
     const highlights = {{ upvote: null, downvote: null, comment: null }};
     if (supportsHighlightAPI) {{
@@ -1312,7 +1321,7 @@ PREVIEW_HTML_TEMPLATE = '''\
         headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify({{ file: ANN_FILE, selected_text: selectedText,
           offset_start: offsetStart, offset_end: offsetEnd,
-          type, comment, author: 'hal' }}),
+          type, comment, author: getAnnotatorName() }}),
       }});
       if (resp.ok) loadAnnotations();
     }}
@@ -1415,7 +1424,7 @@ PREVIEW_HTML_TEMPLATE = '''\
             offset_end: sel.offsetEnd,
             type: 'comment',
             comment,
-            author: 'hal',
+            author: getAnnotatorName(),
           }}),
         }});
         if (resp.ok) {{
@@ -1768,7 +1777,7 @@ class GistHandler(BaseHTTPRequestHandler):
             offset_end=int(body['offset_end']),
             ann_type=str(body['type']),
             comment=str(body.get('comment', '')),
-            author=str(body.get('author', 'hal')),
+            author=str(body.get('author', 'anonymous')),
         )
         self._send_json(201, ann)
 
@@ -1881,7 +1890,7 @@ class GistHandler(BaseHTTPRequestHandler):
 
         # Strip /files prefix
         if url_path.startswith(PREFIX + '/'):
-            rel_path = url_path[len(PREFIX):]  # e.g. /vcc/send-to-jeeves.tsk.xml
+            rel_path = url_path[len(PREFIX):]  # e.g. /a1b2c3d4-example.md
         elif url_path == PREFIX or url_path == PREFIX + '/':
             rel_path = '/'
         else:

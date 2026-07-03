@@ -20,7 +20,7 @@ first.
 
 Then, probably after one too many document reviews at work, I wanted to leave
 comments the agent could read back — the same idea behind Antigravity's
-review annotations, if you've used it. So the preview page grew an
+review annotations. So the preview page grew an
 annotation layer: highlight some text, leave an upvote/downvote/comment, and
 the agent can fetch it and act on it.
 
@@ -40,13 +40,6 @@ The project ships with an agent skill (`skills/file-share/SKILL.md`) that
 tells any agent how the CRUD and annotation APIs work, so once you're done
 leaving feedback, the agent already knows where to find it — no separate
 explanation needed each time.
-
-Most of one particular day's changes were about making the tool
-agent-agnostic and moving it onto a proper CRUD API instead of the
-file-copy approach it was originally built with, before there was much
-guidance to do otherwise. It also moved out of its original home inside a
-specific agent's workspace, so it can be handed to any agent on any
-harness — this repo is the result.
 
 If you're always working directly inside a coding agent with full
 filesystem access (Codex, Claude Code, etc.), you probably don't need this —
@@ -110,18 +103,6 @@ public internet.
 
 ```bash
 python3 -m unittest discover -s tests -v
-```
-
-## Migrating existing flat files into blob form
-
-If you have a pre-existing flat directory of files (not yet in `<id>-<filename>`
-form), `scripts/migrate_to_blobs.py` renames them in place and remaps any
-existing `.annotations.json` file keys accordingly. Idempotent — safe to
-re-run.
-
-```bash
-FILE_SHARE_DIR=/path/to/data python3 scripts/migrate_to_blobs.py
-# or: python3 scripts/migrate_to_blobs.py /path/to/data
 ```
 
 ## Deployment

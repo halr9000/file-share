@@ -27,7 +27,7 @@ Browse to `http://127.0.0.1:3458/files/`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `FILE_SHARE_DIR` | `/home/halr9000/shared` (edit for your setup, or always set this) | Directory the server reads/writes blobs from. No subdirectories — flat by design. |
+| `FILE_SHARE_DIR` | `./shared` (created automatically if missing) | Directory the server reads/writes blobs from. No subdirectories — flat by design. |
 | `PORT` | `3458` | Port to listen on. Can also be passed as `argv[1]`. |
 
 The server only binds to `127.0.0.1` — put it behind whatever reverse proxy

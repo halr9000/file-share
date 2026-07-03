@@ -48,7 +48,7 @@ from pathlib import Path
 
 _argv1 = sys.argv[1] if len(sys.argv) > 1 else None
 PORT = int(_argv1) if (_argv1 is not None and _argv1.isdigit()) else int(os.environ.get('PORT', '3458'))
-SHARED_DIR = Path(os.environ.get('FILE_SHARE_DIR', '/home/halr9000/shared'))
+SHARED_DIR = Path(os.environ.get('FILE_SHARE_DIR', './shared'))
 PREFIX = '/files'
 
 # MIME types for syntax highlighting language detection
@@ -2112,6 +2112,7 @@ class GistHandler(BaseHTTPRequestHandler):
 
 # ── 8. Entry point ─────────────────────────────────────────
 if __name__ == '__main__':
+    SHARED_DIR.mkdir(parents=True, exist_ok=True)
     handler = GistHandler
     with ThreadingHTTPServer(('127.0.0.1', PORT), handler) as httpd:
         print(f'[file-share] Serving {SHARED_DIR} on 127.0.0.1:{PORT} at prefix {PREFIX}/', flush=True)

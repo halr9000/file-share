@@ -127,36 +127,8 @@ If it's not set, ask the user for the base URL rather than guessing.
 ## Backlog / ideas
 
 Phased so related items land in dependency order — each phase is small,
-shippable, and doesn't block on a later one.
-
-**Phase 1 — finish what's started, low-risk polish**
-- **Security sweep (remaining item).** Found and fixed one `innerHTML` issue
-  already: the annotation panel interpolated `selected_text`/`comment`/`author`
-  into `innerHTML` unescaped (stored XSS via any annotation POST — no
-  file-write access needed) — now built via DOM APIs (`textContent`) instead.
-  Found but **not yet fixed**: the markdown table-of-contents flyout
-  re-injects each rendered heading's `textContent` into `innerHTML`, which
-  could produce broken/unexpected markup for a heading containing literal
-  `<`/`&` characters (needs file-write access to exploit, since it comes from
-  the document's own already-rendered heading text — narrower blast radius
-  than the annotation bug, but still worth fixing the same way).
-- **Directory index: file-type icons.** Currently just 📁 (directory) vs 📄
-  (any file). Distinguish photo/video/code/doc (txt, md) with a per-type icon.
-- **Directory index: tighten the table layout.** Reduce wrapping of size
-  units and long filenames (maybe allow a row to wrap onto a second line
-  instead of squeezing everything onto one), and improve column alignment/
-  justification for the timestamp column.
-
-**Phase 2 — directory index viewer experience.** The two toggles are
-prerequisites for the flyout, so build them first and let the flyout be the
-container that ties them together.
-- **Dark/light mode toggle.** Currently always the dark GitHub-style theme.
-- **Relative/fuzzy modified time.** Show "2 hours ago" / "7 days ago" (low
-  precision is fine) in the same column as the exact timestamp, with a way
-  to toggle between the two.
-- **An options flyout** for per-viewer preferences that don't belong as URL
-  params or server config — default sort column and the two toggles above
-  would live here first; bounding-box annotation mode (Phase 4) joins later.
+shippable, and doesn't block on a later one. Phases 1 and 2 are done; what's
+left starts at Phase 3.
 
 **Phase 3 — portability & distribution.** Verify cross-platform support
 before building an installer on top of it, so the installer doesn't ship a
@@ -193,12 +165,6 @@ is an explicit optional follow-on, not a prerequisite.
   `<br>`/`<img>`, etc.) which isn't available in the standard library without
   adding a dependency, conflicting with this project's zero-dependency goal.
   Blocked until that constraint relaxes.
-- **Annotation UI wording.** The "+ General comment" button and its
-  "(general comment — not tied to a selection)" list label are functional
-  but wordy — the word "general" in particular reads oddly. Wants a more
-  minimal treatment (shorter label, maybe an icon instead of explanatory
-  parenthetical text) once there's a concrete direction to implement
-  against; small enough to slot into any phase once decided.
 
 ## License
 

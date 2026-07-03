@@ -909,7 +909,7 @@ PREVIEW_HTML_TEMPLATE = '''\
     <div class="ann-sheet-handle"></div>
     <div class="ann-sheet-header">
       Annotations
-      <button class="btn" id="ann-panel-add-general" title="Add a comment not tied to a specific selection — e.g. on an image">+ General comment</button>
+      <button class="btn" id="ann-panel-add-general" title="Add a comment not tied to a specific selection — e.g. on an image">+ Comment</button>
       <button class="ann-sheet-close" id="ann-panel-close">✕</button>
     </div>
     <div class="ann-sheet-body" id="ann-panel-body"></div>
@@ -1149,7 +1149,7 @@ PREVIEW_HTML_TEMPLATE = '''\
         textDiv.className = 'ann-item-text';
         if (a.offset_start === null) {{
           const em = document.createElement('em');
-          em.textContent = '(general comment — not tied to a selection)';
+          em.textContent = '(not tied to a selection)';
           textDiv.appendChild(em);
         }} else {{
           const snippet = a.selected_text.slice(0, 80) + (a.selected_text.length > 80 ? '…' : '');
@@ -1432,7 +1432,7 @@ PREVIEW_HTML_TEMPLATE = '''\
       document.getElementById('ann-panel-add-general').addEventListener('click', () => {{
         _pendingSelection = null;
         _pendingUnanchored = true;
-        document.getElementById('ann-comment-label').textContent = 'General comment (not tied to a selection)';
+        document.getElementById('ann-comment-label').textContent = 'Comment (not tied to a selection)';
         document.getElementById('ann-comment-input').value = '';
         closeSheet('ann-panel-sheet');
         openSheet('ann-comment-sheet');
@@ -1655,59 +1655,188 @@ DIR_HTML_TEMPLATE = '''\
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Index of {path}</title>
+  <script>
+    (function() {{
+      var t = localStorage.getItem('fileshare_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    }})();
+  </script>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; }}
+    :root {{
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #21262d;
+      --fg: #c9d1d9;
+      --fg-strong: #e6edf3;
+      --fg-muted: #8b949e;
+      --border: #30363d;
+      --border-soft: #21262d;
+      --link: #58a6ff;
+      --row-hover: #1c2129;
+      --accent: #1f6feb;
+      --accent-fg: #ffffff;
+    }}
+    :root[data-theme="light"] {{
+      --bg: #ffffff;
+      --surface: #ffffff;
+      --surface-2: #f6f8fa;
+      --fg: #1f2328;
+      --fg-strong: #1f2328;
+      --fg-muted: #57606a;
+      --border: #d0d7de;
+      --border-soft: #eaeef2;
+      --link: #0969da;
+      --row-hover: #f6f8fa;
+      --accent: #0969da;
+      --accent-fg: #ffffff;
+    }}
     body {{
       margin: 0;
-      background: #0d1117;
-      color: #c9d1d9;
+      background: var(--bg);
+      color: var(--fg);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
     }}
-    a {{ color: #58a6ff; text-decoration: none; }}
+    a {{ color: var(--link); text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
     .header {{
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       padding: 16px 24px;
-      background: #161b22;
-      border-bottom: 1px solid #30363d;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
       font-size: 16px;
       font-weight: 600;
-      color: #e6edf3;
+      color: var(--fg-strong);
+    }}
+    .options-btn {{
+      background: transparent;
+      border: none;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--fg-muted);
+      padding: 4px 8px;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }}
+    .options-btn:hover {{ background: var(--row-hover); color: var(--fg-strong); }}
+    .options-flyout {{
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 20px;
+      margin-top: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      z-index: 20;
+      min-width: 220px;
+      font-size: 13px;
+      font-weight: 400;
+    }}
+    .options-flyout.open {{ display: block; }}
+    .options-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }}
+    .options-row:last-child {{ margin-bottom: 0; }}
+    .options-label {{ color: var(--fg-muted); }}
+    .options-toggle {{
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }}
+    .options-toggle button {{
+      background: var(--surface-2);
+      color: var(--fg-muted);
+      border: none;
+      border-right: 1px solid var(--border);
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }}
+    .options-toggle button:last-child {{ border-right: none; }}
+    .options-toggle button.active {{ background: var(--accent); color: var(--accent-fg); }}
+    #default-sort-select {{
+      background: var(--surface-2);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
     }}
     .content {{ max-width: 900px; margin: 24px auto; padding: 0 20px; }}
     table {{
       width: 100%;
       border-collapse: collapse;
-      background: #161b22;
-      border: 1px solid #30363d;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 6px;
       overflow: hidden;
     }}
     th {{
-      background: #21262d;
+      background: var(--surface-2);
       padding: 10px 16px;
       text-align: left;
-      color: #8b949e;
+      color: var(--fg-muted);
       font-weight: 500;
-      border-bottom: 1px solid #30363d;
+      border-bottom: 1px solid var(--border);
     }}
     td {{
       padding: 8px 16px;
-      border-bottom: 1px solid #21262d;
+      border-bottom: 1px solid var(--border-soft);
     }}
     tr:last-child td {{ border-bottom: none; }}
-    tr:hover td {{ background: #1c2129; }}
+    tr:hover td {{ background: var(--row-hover); }}
     .icon {{ margin-right: 6px; }}
     .name {{ overflow-wrap: anywhere; }}
-    .size {{ color: #8b949e; text-align: right; white-space: nowrap; width: 1%; }}
-    .mtime {{ color: #8b949e; text-align: right; white-space: nowrap; width: 1%; }}
+    .size {{ color: var(--fg-muted); text-align: right; white-space: nowrap; width: 1%; }}
+    .mtime {{ color: var(--fg-muted); text-align: right; white-space: nowrap; width: 1%; }}
     th[data-key] {{ cursor: pointer; user-select: none; }}
-    th[data-key]:hover {{ color: #c9d1d9; }}
+    th[data-key]:hover {{ color: var(--fg); }}
     .sort-icon {{ display: inline-block; width: 1em; }}
   </style>
 </head>
 <body>
-  <div class="header">Index of {path}</div>
+  <div class="header">
+    <span>Index of {path}</span>
+    <button class="options-btn" id="options-btn" title="Display options" aria-label="Display options">⚙️</button>
+    <div class="options-flyout" id="options-flyout">
+      <div class="options-row">
+        <span class="options-label">Theme</span>
+        <div class="options-toggle" id="theme-toggle">
+          <button data-value="dark">Dark</button>
+          <button data-value="light">Light</button>
+        </div>
+      </div>
+      <div class="options-row">
+        <span class="options-label">Timestamps</span>
+        <div class="options-toggle" id="time-toggle">
+          <button data-value="exact">Exact</button>
+          <button data-value="relative">Relative</button>
+        </div>
+      </div>
+      <div class="options-row">
+        <span class="options-label">Default sort</span>
+        <select id="default-sort-select">
+          <option value="name">Name</option>
+          <option value="size">Size</option>
+          <option value="mtime">Last Modified</option>
+        </select>
+      </div>
+    </div>
+  </div>
   <div class="content">
     <table>
       <thead>
@@ -1726,8 +1855,16 @@ DIR_HTML_TEMPLATE = '''\
     const HAS_PARENT = {has_parent};
     const PARENT_HREF = {parent_href};
 
-    let sortKey = 'mtime';
-    let sortDir = 'desc'; // default: most recently modified first
+    function getPref(key, fallback) {{
+      const v = localStorage.getItem(key);
+      return v === null ? fallback : v;
+    }}
+    function setPref(key, val) {{ localStorage.setItem(key, val); }}
+
+    let theme = getPref('fileshare_theme', 'dark');
+    let useRelativeTime = getPref('fileshare_relative_time', 'false') === 'true';
+    let sortKey = getPref('fileshare_sort_key', 'mtime');
+    let sortDir = sortKey === 'name' ? 'asc' : 'desc';
 
     function fmtSize(bytes) {{
       if (bytes === null || bytes === undefined) return '—';
@@ -1737,9 +1874,27 @@ DIR_HTML_TEMPLATE = '''\
       return (i === 0 ? v : v.toFixed(1)) + ' ' + units[i];
     }}
 
+    function fmtRelative(date) {{
+      const sec = Math.round((Date.now() - date.getTime()) / 1000);
+      const units = [
+        [60, 'second'], [60, 'minute'], [24, 'hour'], [7, 'day'],
+        [4.345, 'week'], [12, 'month'], [Infinity, 'year'],
+      ];
+      let value = sec, name = 'second';
+      for (const [size, unitName] of units) {{
+        if (value < size) {{ name = unitName; break; }}
+        value /= size;
+        name = unitName;
+      }}
+      value = Math.round(value);
+      if (name === 'second') return 'just now';
+      return `${{value}} ${{name}}${{value === 1 ? '' : 's'}} ago`;
+    }}
+
     function fmtMtime(iso) {{
       if (!iso) return '—';
-      return new Date(iso).toLocaleString();
+      const d = new Date(iso);
+      return useRelativeTime ? fmtRelative(d) : d.toLocaleString();
     }}
 
     const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico']);
@@ -1782,6 +1937,7 @@ DIR_HTML_TEMPLATE = '''\
       const mtimeTd = document.createElement('td');
       mtimeTd.className = 'mtime';
       mtimeTd.textContent = fmtMtime(entry.mtime);
+      if (useRelativeTime && entry.mtime) mtimeTd.title = new Date(entry.mtime).toLocaleString();
 
       tr.appendChild(nameTd);
       tr.appendChild(sizeTd);
@@ -1842,6 +1998,54 @@ DIR_HTML_TEMPLATE = '''\
       }});
     }});
 
+    // ── Options flyout ──────────────────────────────────────────────────────
+
+    function setActiveToggle(container, value) {{
+      container.querySelectorAll('button').forEach(b => {{
+        b.classList.toggle('active', b.dataset.value === value);
+      }});
+    }}
+
+    const optionsBtn = document.getElementById('options-btn');
+    const optionsFlyout = document.getElementById('options-flyout');
+    optionsBtn.addEventListener('click', (e) => {{
+      e.stopPropagation();
+      optionsFlyout.classList.toggle('open');
+    }});
+    document.addEventListener('click', (e) => {{
+      if (!optionsFlyout.contains(e.target) && !optionsBtn.contains(e.target)) {{
+        optionsFlyout.classList.remove('open');
+      }}
+    }});
+
+    document.querySelectorAll('#theme-toggle button').forEach(b => {{
+      b.addEventListener('click', () => {{
+        theme = b.dataset.value;
+        setPref('fileshare_theme', theme);
+        document.documentElement.setAttribute('data-theme', theme);
+        setActiveToggle(document.getElementById('theme-toggle'), theme);
+      }});
+    }});
+
+    document.querySelectorAll('#time-toggle button').forEach(b => {{
+      b.addEventListener('click', () => {{
+        useRelativeTime = b.dataset.value === 'relative';
+        setPref('fileshare_relative_time', useRelativeTime ? 'true' : 'false');
+        setActiveToggle(document.getElementById('time-toggle'), b.dataset.value);
+        render();
+      }});
+    }});
+
+    document.getElementById('default-sort-select').addEventListener('change', (e) => {{
+      sortKey = e.target.value;
+      sortDir = sortKey === 'name' ? 'asc' : 'desc';
+      setPref('fileshare_sort_key', sortKey);
+      render();
+    }});
+
+    setActiveToggle(document.getElementById('theme-toggle'), theme);
+    setActiveToggle(document.getElementById('time-toggle'), useRelativeTime ? 'relative' : 'exact');
+    document.getElementById('default-sort-select').value = sortKey;
     render();
   </script>
 </body>

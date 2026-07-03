@@ -1123,22 +1123,66 @@ PREVIEW_HTML_TEMPLATE = '''\
       const body = document.getElementById('ann-panel-body');
       if (!body) return;
       const icons = {{ upvote: '👍', downvote: '👎', comment: '💬' }};
+      body.textContent = '';
       if (!annotations.length) {{
-        body.innerHTML = '<div style="color:#484f58;text-align:center;padding:20px 0">No annotations yet</div>';
+        const empty = document.createElement('div');
+        empty.style.color = '#484f58';
+        empty.style.textAlign = 'center';
+        empty.style.padding = '20px 0';
+        empty.textContent = 'No annotations yet';
+        body.appendChild(empty);
         return;
       }}
-      body.innerHTML = annotations.map(a => `
-        <div class="ann-item">
-          <div class="ann-item-text">${{a.offset_start === null
-            ? '<em>(general comment — not tied to a selection)</em>'
-            : `"${{a.selected_text.slice(0,80)}}${{a.selected_text.length>80?'…':''}}"`}}</div>
-          <div class="ann-item-meta">
-            <span class="ann-type-${{a.type}}">${{icons[a.type]}} ${{a.type}}</span>
-            <span style="color:#484f58;font-size:11px">${{a.author}}</span>
-            ${{a.comment ? `<span style="color:#c9d1d9;font-size:12px">— ${{a.comment}}</span>` : ''}}
-            <span class="ann-item-delete" onclick="deleteAnnotation('${{a.id}}')">✕</span>
-          </div>
-        </div>`).join('');
+      // Built via DOM APIs (textContent), not innerHTML string interpolation --
+      // selected_text/comment/author are user-supplied and must never be
+      // parsed as markup.
+      annotations.forEach(a => {{
+        const item = document.createElement('div');
+        item.className = 'ann-item';
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'ann-item-text';
+        if (a.offset_start === null) {{
+          const em = document.createElement('em');
+          em.textContent = '(general comment — not tied to a selection)';
+          textDiv.appendChild(em);
+        }} else {{
+          const snippet = a.selected_text.slice(0, 80) + (a.selected_text.length > 80 ? '…' : '');
+          textDiv.textContent = `"${{snippet}}"`;
+        }}
+
+        const meta = document.createElement('div');
+        meta.className = 'ann-item-meta';
+
+        const typeSpan = document.createElement('span');
+        typeSpan.className = 'ann-type-' + a.type;
+        typeSpan.textContent = `${{icons[a.type] || ''}} ${{a.type}}`;
+        meta.appendChild(typeSpan);
+
+        const authorSpan = document.createElement('span');
+        authorSpan.style.color = '#484f58';
+        authorSpan.style.fontSize = '11px';
+        authorSpan.textContent = a.author;
+        meta.appendChild(authorSpan);
+
+        if (a.comment) {{
+          const commentSpan = document.createElement('span');
+          commentSpan.style.color = '#c9d1d9';
+          commentSpan.style.fontSize = '12px';
+          commentSpan.textContent = '— ' + a.comment;
+          meta.appendChild(commentSpan);
+        }}
+
+        const deleteSpan = document.createElement('span');
+        deleteSpan.className = 'ann-item-delete';
+        deleteSpan.textContent = '✕';
+        deleteSpan.addEventListener('click', () => deleteAnnotation(a.id));
+        meta.appendChild(deleteSpan);
+
+        item.appendChild(textDiv);
+        item.appendChild(meta);
+        body.appendChild(item);
+      }});
     }}
 
     let _loading = false;
@@ -2186,6 +2230,15 @@ class GistHandler(BaseHTTPRequestHandler):
                     import json as _json
                     try:
                         text = _json.dumps(_json.loads(text), indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
+                elif lang == 'xml':
+                    try:
+                        import xml.dom.minidom as _minidom
+                        pretty = _minidom.parseString(text).toprettyxml(indent='  ')
+                        # toprettyxml leaves blank lines between text-only nodes;
+                        # strip them so already-formatted XML doesn't get sparser.
+                        text = '\n'.join(line for line in pretty.splitlines() if line.strip())
                     except Exception:
                         pass
                 escaped = html.escape(text)

@@ -298,6 +298,21 @@ class TestBlobAPI(unittest.TestCase):
         self.assertEqual(entry['size'], len(b'hello world'))
         self.assertFalse(entry['isDir'])
 
+    def test_preview_page_pretty_prints_minified_json(self):
+        _, blob = self._post_blob('mini.json', b'{"a":1,"b":[1,2,3]}')
+        status, html_body = self._get_html(f'/files/{blob["id"]}-mini.json')
+        self.assertEqual(status, 200)
+        self.assertIn('&quot;a&quot;: 1', html_body)
+        self.assertIn('\n', html_body.split('<code')[1].split('</code>')[0])
+
+    def test_preview_page_pretty_prints_minified_xml(self):
+        _, blob = self._post_blob('mini.xml', b'<root><a>1</a><b>2</b></root>')
+        status, html_body = self._get_html(f'/files/{blob["id"]}-mini.xml')
+        self.assertEqual(status, 200)
+        code_block = html_body.split('<code')[1].split('</code>')[0]
+        self.assertIn('\n', code_block)
+        self.assertIn('&lt;a&gt;1&lt;/a&gt;', code_block)
+
     def test_preview_page_shows_clean_filename_and_ids_for_annotations(self):
         _, blob = self._post_blob('preview-me.md', b'# Title')
         status, html_body = self._get_html(f'/files/{blob["id"]}-preview-me.md')

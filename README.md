@@ -113,6 +113,33 @@ If it's not set, ask the user for the base URL rather than guessing.
   (e.g. a YOLO variant) against uploaded images to propose candidate boxes
   a viewer could pick from instead of drawing one by hand. Strictly optional
   — the manual bounding-box flow above should work standalone without it.
+- **Security sweep.** A focused pass over path handling, filename validation,
+  and remaining `innerHTML` usages. Found and fixed one during this session:
+  the annotation panel interpolated `selected_text`/`comment`/`author` into
+  `innerHTML` unescaped (stored XSS via any annotation POST — no file-write
+  access needed) — now built via DOM APIs (`textContent`) instead. Found but
+  **not yet fixed**: the markdown table-of-contents flyout re-injects each
+  rendered heading's `textContent` into `innerHTML`, which could produce
+  broken/unexpected markup for a heading containing literal `<`/`&`
+  characters (needs file-write access to exploit, since it comes from the
+  document's own already-rendered heading text — narrower blast radius than
+  the annotation bug, but still worth fixing the same way).
+- **Cross-platform support (macOS, Windows).** The server itself is pure
+  Python stdlib and should already run on both; what's unverified is the
+  deployment story (the systemd example is Linux-only) and any path-handling
+  assumptions (POSIX permissions, `/`-only path separators) that haven't been
+  exercised outside Linux.
+- **One-line quick-start installer** (`curl ... | bash` on macOS/Linux,
+  `iwr ... | iex` on Windows) once this is published, so a first-time user
+  doesn't need to manually clone + configure.
+- **Beautify minified JS and HTML in the code preview**, matching the
+  minified-JSON and minified-XML pretty-printing already implemented (both
+  reformat safely using stdlib `json`/`xml.dom.minidom`). Reliable JS/HTML
+  reformatting needs a real parser (regex-based reformatting is unsafe —
+  easy to break on regex literals, template strings, unclosed void tags like
+  `<br>`/`<img>`, etc.) which isn't available in the standard library without
+  adding a dependency, conflicting with this project's zero-dependency goal.
+  Worth revisiting if that constraint ever relaxes.
 
 ## License
 

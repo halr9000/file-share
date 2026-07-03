@@ -158,6 +158,23 @@ class TestAnnotationAPI(unittest.TestCase):
         self.assertIn('id', body)
         self.assertEqual(body['type'], 'upvote')
 
+    def test_post_stores_html_special_characters_verbatim(self):
+        # The server does not (and should not) sanitize annotation content --
+        # the preview page's client-side rendering is responsible for safely
+        # displaying it (via textContent, not innerHTML string interpolation).
+        # This test documents that contract: whatever the client sends is
+        # what comes back, unescaped.
+        payload = '<script>alert(1)</script>'
+        status, body = self._post({
+            'file': '/xss-test.md', 'selected_text': payload,
+            'offset_start': 0, 'offset_end': 1,
+            'type': 'comment', 'comment': payload, 'author': payload,
+        })
+        self.assertEqual(status, 201)
+        self.assertEqual(body['selected_text'], payload)
+        self.assertEqual(body['comment'], payload)
+        self.assertEqual(body['author'], payload)
+
     def test_post_validates_required_fields(self):
         status, body = self._post({'file': '/test.md'})
         self.assertEqual(status, 400)

@@ -85,6 +85,19 @@ class TestAnnotationStore(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(len(self.store.get('/f.md')), 50)
 
+    def test_delete_by_file_removes_all_matching_annotations(self):
+        self.store.add('a1b2c3d4', 'foo', 0, 3, 'upvote', '', 'hal')
+        self.store.add('a1b2c3d4', 'bar', 4, 7, 'comment', 'note', 'hal')
+        self.store.add('other-id', 'baz', 0, 3, 'upvote', '', 'hal')
+        count = self.store.delete_by_file('a1b2c3d4')
+        self.assertEqual(count, 2)
+        self.assertEqual(len(self.store.get('a1b2c3d4')), 0)
+        self.assertEqual(len(self.store.get('other-id')), 1)
+
+    def test_delete_by_file_returns_zero_when_no_match(self):
+        count = self.store.delete_by_file('no-such-id')
+        self.assertEqual(count, 0)
+
 
 class TestAnnotationAPI(unittest.TestCase):
     """Integration tests: spins up a real server, hits it with http.client."""
@@ -145,6 +158,23 @@ class TestAnnotationAPI(unittest.TestCase):
         self.assertIn('id', body)
         self.assertEqual(body['type'], 'upvote')
 
+    def test_post_stores_html_special_characters_verbatim(self):
+        # The server does not (and should not) sanitize annotation content --
+        # the preview page's client-side rendering is responsible for safely
+        # displaying it (via textContent, not innerHTML string interpolation).
+        # This test documents that contract: whatever the client sends is
+        # what comes back, unescaped.
+        payload = '<script>alert(1)</script>'
+        status, body = self._post({
+            'file': '/xss-test.md', 'selected_text': payload,
+            'offset_start': 0, 'offset_end': 1,
+            'type': 'comment', 'comment': payload, 'author': payload,
+        })
+        self.assertEqual(status, 201)
+        self.assertEqual(body['selected_text'], payload)
+        self.assertEqual(body['comment'], payload)
+        self.assertEqual(body['author'], payload)
+
     def test_post_validates_required_fields(self):
         status, body = self._post({'file': '/test.md'})
         self.assertEqual(status, 400)
@@ -184,6 +214,43 @@ class TestAnnotationAPI(unittest.TestCase):
     def test_delete_nonexistent_returns_404(self):
         status = self._delete('no-such-id')
         self.assertEqual(status, 404)
+
+    def test_post_creates_unanchored_annotation_with_null_offsets(self):
+        status, body = self._post({
+            'file': '/picture.jpg', 'type': 'comment',
+            'comment': 'nice photo', 'author': 'hal',
+        })
+        self.assertEqual(status, 201)
+        self.assertIsNone(body['offset_start'])
+        self.assertIsNone(body['offset_end'])
+        self.assertEqual(body['selected_text'], '')
+
+    def test_post_creates_unanchored_annotation_with_explicit_null_offsets(self):
+        status, body = self._post({
+            'file': '/picture.jpg', 'type': 'comment', 'comment': 'nice photo',
+            'offset_start': None, 'offset_end': None, 'author': 'hal',
+        })
+        self.assertEqual(status, 201)
+        self.assertIsNone(body['offset_start'])
+        self.assertIsNone(body['offset_end'])
+
+    def test_post_rejects_only_one_offset_set(self):
+        status, body = self._post({
+            'file': '/picture.jpg', 'type': 'comment', 'comment': 'x',
+            'offset_start': 0, 'author': 'hal',
+        })
+        self.assertEqual(status, 400)
+        self.assertIn('error', body)
+
+    def test_get_returns_unanchored_annotation_alongside_anchored(self):
+        self._post({'file': '/mixed.md', 'type': 'comment', 'comment': 'general note', 'author': 'hal'})
+        self._post({'file': '/mixed.md', 'selected_text': 'x', 'offset_start': 0,
+                     'offset_end': 1, 'type': 'upvote', 'comment': '', 'author': 'hal'})
+        status, body = self._get('/mixed.md')
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body), 2)
+        self.assertTrue(any(a['offset_start'] is None for a in body))
+        self.assertTrue(any(a['offset_start'] is not None for a in body))
 
 
 if __name__ == '__main__':

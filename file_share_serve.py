@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 file-share-serve.py
-Gist-style file preview server for /home/halr9000/shared/
+Gist-style file preview server for a flat blob-store directory.
 
-Serves files under the /files/ path prefix so the tailscale-proxy
-can route /files/ → this server.
+Serves files under the /files/ path prefix. Configure the served
+directory and port via the FILE_SHARE_DIR and PORT env vars (see README).
 
 
 - Default: serves a GitHub Gist-style HTML preview page
@@ -35,6 +35,7 @@ Default port: 3458
 
 import json
 import os
+import re
 import sys
 import html
 import mimetypes
@@ -47,7 +48,7 @@ from pathlib import Path
 
 _argv1 = sys.argv[1] if len(sys.argv) > 1 else None
 PORT = int(_argv1) if (_argv1 is not None and _argv1.isdigit()) else int(os.environ.get('PORT', '3458'))
-SHARED_DIR = Path('/home/halr9000/shared')
+SHARED_DIR = Path(os.environ.get('FILE_SHARE_DIR', './shared'))
 PREFIX = '/files'
 
 # MIME types for syntax highlighting language detection
@@ -105,6 +106,7 @@ class AnnotationStore:
 
     Annotations are dicts with keys: id, file, selected_text, offset_start,
     offset_end, type (upvote|downvote|comment), comment, author, created_at.
+    offset_start/offset_end are None for an unanchored (whole-file) comment.
     All mutations hold ``_lock`` and flush to disk immediately.
     """
 
@@ -124,24 +126,14 @@ class AnnotationStore:
     def _save(self):
         self._path.write_text(json.dumps(self._data, indent=2, ensure_ascii=False))
 
-    def add(self, file: str, selected_text: str, offset_start: int, offset_end: int,
+    def add(self, file: str, selected_text: str, offset_start: int | None, offset_end: int | None,
             ann_type: str, comment: str, author: str) -> dict:
-        """"Append a new annotation and persist. Returns the new annotation dict."""
-        ann = {
-            'id': str(uuid.uuid4()),
-            'file': file,
-            'selected_text': selected_text,
-            'offset_start': offset_start,
-            'offset_end': offset_end,
-            'type': ann_type,
-            'comment': comment,
-            'author': author,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-        }
-        with self._lock:
-            self._data.append(ann)
-            self._save()
-        return ann
+        """Append a new annotation and persist. Returns the new annotation dict.
+
+        offset_start/offset_end may be None for an "unanchored" annotation --
+        a general comment on the file as a whole, not tied to a text range
+        (e.g. a comment on an image).
+        """
         ann = {
             'id': str(uuid.uuid4()),
             'file': file,
@@ -178,6 +170,16 @@ class AnnotationStore:
                 return True
             return False
 
+    def delete_by_file(self, file_key: str) -> int:
+        """Delete every annotation for the given file key. Returns count deleted."""
+        with self._lock:
+            original_len = len(self._data)
+            self._data = [a for a in self._data if a['file'] != file_key]
+            deleted = original_len - len(self._data)
+            if deleted:
+                self._save()
+            return deleted
+
     def update(self, ann_id: str, comment: str | None = None, ann_type: str | None = None) -> dict | None:
         """Update comment and/or type. Returns the updated dict, or None if not found."""
         with self._lock:
@@ -193,6 +195,91 @@ class AnnotationStore:
 
 
 _store = AnnotationStore()
+
+
+# ── 3b. Blob identity & metadata ───────────────────────────
+BLOB_NAME_RE = re.compile(r'^([0-9a-f]{8})-(.+)$')
+
+
+def parse_blob_name(name: str) -> tuple[str, str] | None:
+    """Split a stored filename like 'a1b2c3d4-report.md' into (id, filename).
+
+    Returns None if name doesn't match the blob naming convention (e.g.
+    '.annotations.json', or a pre-migration plain filename).
+    """
+    m = BLOB_NAME_RE.match(name)
+    if not m:
+        return None
+    return m.group(1), m.group(2)
+
+
+def is_valid_upload_filename(filename: str) -> bool:
+    """Reject filenames that could escape the flat shared/ namespace.
+
+    This is the actual enforcement for "no subdirectories in shared/" —
+    the CRUD API is the only sanctioned write path, so rejecting '/' here
+    makes a nested path structurally impossible to create through it.
+    """
+    if not filename:
+        return False
+    if '/' in filename or '\x00' in filename:
+        return False
+    if '..' in filename:
+        return False
+    if filename.startswith('.'):
+        return False
+    return True
+
+
+def generate_blob_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def blob_metadata(fs_path: Path) -> dict | None:
+    """Build the JSON-serializable metadata dict for a blob file.
+
+    Returns None if fs_path's name doesn't match the blob naming convention.
+    """
+    parsed = parse_blob_name(fs_path.name)
+    if parsed is None:
+        return None
+    blob_id, filename = parsed
+    stat = fs_path.stat()
+    mime, _ = mimetypes.guess_type(filename)
+    if not mime:
+        mime = 'application/octet-stream'
+    return {
+        'id': blob_id,
+        'filename': filename,
+        'url': f'{PREFIX}/{fs_path.name}',
+        'size': stat.st_size,
+        'mime': mime,
+        'created_at': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+    }
+
+
+def list_blobs() -> list[dict]:
+    """Return metadata for every blob under SHARED_DIR, sorted by filename."""
+    blobs = []
+    for p in SHARED_DIR.iterdir():
+        if not p.is_file():
+            continue
+        meta = blob_metadata(p)
+        if meta is not None:
+            blobs.append(meta)
+    blobs.sort(key=lambda b: b['filename'].lower())
+    return blobs
+
+
+def find_blob_path(blob_id: str) -> Path | None:
+    """Find the on-disk path for a blob id, or None if no blob has that id."""
+    for p in SHARED_DIR.iterdir():
+        if not p.is_file():
+            continue
+        parsed = parse_blob_name(p.name)
+        if parsed and parsed[0] == blob_id:
+            return p
+    return None
 
 
 # ── 4. Utility functions ───────────────────────────────────
@@ -419,8 +506,9 @@ PREVIEW_HTML_TEMPLATE = '''\
     /* copy toast */
     #toast {{
       position: fixed;
-      bottom: 24px;
-      right: 24px;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
       background: #238636;
       color: #fff;
       padding: 8px 16px;
@@ -429,6 +517,7 @@ PREVIEW_HTML_TEMPLATE = '''\
       opacity: 0;
       transition: opacity 0.3s;
       pointer-events: none;
+      z-index: 1000;
     }}
 
     /* Annotation highlights via CSS Custom Highlight API */
@@ -820,6 +909,7 @@ PREVIEW_HTML_TEMPLATE = '''\
     <div class="ann-sheet-handle"></div>
     <div class="ann-sheet-header">
       Annotations
+      <button class="btn" id="ann-panel-add-general" title="Add a comment not tied to a specific selection — e.g. on an image">+ General comment</button>
       <button class="ann-sheet-close" id="ann-panel-close">✕</button>
     </div>
     <div class="ann-sheet-body" id="ann-panel-body"></div>
@@ -915,6 +1005,15 @@ PREVIEW_HTML_TEMPLATE = '''\
 
     const ANN_FILE = '{ann_file_key}';
 
+    function getAnnotatorName() {{
+      let name = localStorage.getItem('fileShareAuthorName');
+      if (!name) {{
+        name = (prompt('Your name (for annotations):', '') || '').trim() || 'anonymous';
+        localStorage.setItem('fileShareAuthorName', name);
+      }}
+      return name;
+    }}
+
     const supportsHighlightAPI = typeof CSS !== 'undefined' && CSS.highlights;
     const highlights = {{ upvote: null, downvote: null, comment: null }};
     if (supportsHighlightAPI) {{
@@ -960,6 +1059,7 @@ PREVIEW_HTML_TEMPLATE = '''\
       const textNodes = getPreviewTextNodes();
       if (!textNodes.length) return;
       for (const ann of annotations) {{
+        if (ann.offset_start === null || ann.offset_end === null) continue; // unanchored
         try {{
           const start = resolveOffset(textNodes, ann.offset_start);
           const end   = resolveOffset(textNodes, ann.offset_end);
@@ -1023,20 +1123,66 @@ PREVIEW_HTML_TEMPLATE = '''\
       const body = document.getElementById('ann-panel-body');
       if (!body) return;
       const icons = {{ upvote: '👍', downvote: '👎', comment: '💬' }};
+      body.textContent = '';
       if (!annotations.length) {{
-        body.innerHTML = '<div style="color:#484f58;text-align:center;padding:20px 0">No annotations yet</div>';
+        const empty = document.createElement('div');
+        empty.style.color = '#484f58';
+        empty.style.textAlign = 'center';
+        empty.style.padding = '20px 0';
+        empty.textContent = 'No annotations yet';
+        body.appendChild(empty);
         return;
       }}
-      body.innerHTML = annotations.map(a => `
-        <div class="ann-item">
-          <div class="ann-item-text">"${{a.selected_text.slice(0,80)}}${{a.selected_text.length>80?'…':''}}"</div>
-          <div class="ann-item-meta">
-            <span class="ann-type-${{a.type}}">${{icons[a.type]}} ${{a.type}}</span>
-            <span style="color:#484f58;font-size:11px">${{a.author}}</span>
-            ${{a.comment ? `<span style="color:#c9d1d9;font-size:12px">— ${{a.comment}}</span>` : ''}}
-            <span class="ann-item-delete" onclick="deleteAnnotation('${{a.id}}')">✕</span>
-          </div>
-        </div>`).join('');
+      // Built via DOM APIs (textContent), not innerHTML string interpolation --
+      // selected_text/comment/author are user-supplied and must never be
+      // parsed as markup.
+      annotations.forEach(a => {{
+        const item = document.createElement('div');
+        item.className = 'ann-item';
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'ann-item-text';
+        if (a.offset_start === null) {{
+          const em = document.createElement('em');
+          em.textContent = '(general comment — not tied to a selection)';
+          textDiv.appendChild(em);
+        }} else {{
+          const snippet = a.selected_text.slice(0, 80) + (a.selected_text.length > 80 ? '…' : '');
+          textDiv.textContent = `"${{snippet}}"`;
+        }}
+
+        const meta = document.createElement('div');
+        meta.className = 'ann-item-meta';
+
+        const typeSpan = document.createElement('span');
+        typeSpan.className = 'ann-type-' + a.type;
+        typeSpan.textContent = `${{icons[a.type] || ''}} ${{a.type}}`;
+        meta.appendChild(typeSpan);
+
+        const authorSpan = document.createElement('span');
+        authorSpan.style.color = '#484f58';
+        authorSpan.style.fontSize = '11px';
+        authorSpan.textContent = a.author;
+        meta.appendChild(authorSpan);
+
+        if (a.comment) {{
+          const commentSpan = document.createElement('span');
+          commentSpan.style.color = '#c9d1d9';
+          commentSpan.style.fontSize = '12px';
+          commentSpan.textContent = '— ' + a.comment;
+          meta.appendChild(commentSpan);
+        }}
+
+        const deleteSpan = document.createElement('span');
+        deleteSpan.className = 'ann-item-delete';
+        deleteSpan.textContent = '✕';
+        deleteSpan.addEventListener('click', () => deleteAnnotation(a.id));
+        meta.appendChild(deleteSpan);
+
+        item.appendChild(textDiv);
+        item.appendChild(meta);
+        body.appendChild(item);
+      }});
     }}
 
     let _loading = false;
@@ -1066,6 +1212,7 @@ PREVIEW_HTML_TEMPLATE = '''\
     // ── Selection capture (pointer-aware) ──────────────────────────────────
 
     let _pendingSelection = null;
+    let _pendingUnanchored = false;
 
     function getContentCharOffset(node, localOffset) {{
       const textNodes = getPreviewTextNodes();
@@ -1109,7 +1256,8 @@ PREVIEW_HTML_TEMPLATE = '''\
     // Returns the first annotation whose char range contains offset.
     // When annotations overlap, the earliest-inserted one wins (insertion order).
     function findAnnotationAtOffset(offset) {{
-      return _annotations.find(a => offset >= a.offset_start && offset < a.offset_end) || null;
+      return _annotations.find(a =>
+        a.offset_start !== null && offset >= a.offset_start && offset < a.offset_end) || null;
     }}
 
     // ── Click-on-highlight detection ─────────────────────────────────────────
@@ -1173,6 +1321,17 @@ PREVIEW_HTML_TEMPLATE = '''\
       _pointerActive = false;
       clearTimeout(_pointerTimer);
     }}, {{ passive: true }});
+    // touchend is the authoritative "finger actually lifted" signal. Mobile
+    // long-press-to-select-word fires pointercancel at gesture-recognition
+    // time (when the OS hands off to its native selection UI) -- which can
+    // happen well before the user finishes extending a drag-selection, so
+    // scheduling the check there fires too early and cuts drags short.
+    // touchend only fires once, at real release, so it's safe for both the
+    // single-word-tap and the drag-to-extend case.
+    document.addEventListener('touchend', () => {{
+      clearTimeout(_selectionTimer);
+      _selectionTimer = setTimeout(checkSelection, 80);
+    }}, {{ passive: true }});
 
     // Part B: Desktop mouse drag — capture selection immediately on mouseup
     document.addEventListener('mousedown', (e) => {{
@@ -1216,7 +1375,7 @@ PREVIEW_HTML_TEMPLATE = '''\
         headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify({{ file: ANN_FILE, selected_text: selectedText,
           offset_start: offsetStart, offset_end: offsetEnd,
-          type, comment, author: 'hal' }}),
+          type, comment, author: getAnnotatorName() }}),
       }});
       if (resp.ok) loadAnnotations();
     }}
@@ -1265,12 +1424,23 @@ PREVIEW_HTML_TEMPLATE = '''\
       document.getElementById('ann-panel-close')
         .addEventListener('click', () => closeSheet('ann-panel-sheet'));
 
+      document.getElementById('ann-panel-add-general').addEventListener('click', () => {{
+        _pendingSelection = null;
+        _pendingUnanchored = true;
+        document.getElementById('ann-comment-label').textContent = 'General comment (not tied to a selection)';
+        document.getElementById('ann-comment-input').value = '';
+        closeSheet('ann-panel-sheet');
+        openSheet('ann-comment-sheet');
+        setTimeout(() => document.getElementById('ann-comment-input').focus(), 260);
+      }});
+
       document.getElementById('ann-backdrop').addEventListener('click', () => {{
         closeSheet('ann-panel-sheet');
         closeSheet('ann-action-sheet');
         closeSheet('ann-comment-sheet');
         closeSheet('ann-detail-sheet');
         _pendingSelection = null;
+        _pendingUnanchored = false;
         _detailAnn = null;
       }});
 
@@ -1299,14 +1469,17 @@ PREVIEW_HTML_TEMPLATE = '''\
         _cmtCancelling = false;
         closeSheet('ann-comment-sheet');
         _pendingSelection = null;
+        _pendingUnanchored = false;
       }});
 
       // Auto-save on blur: when the textarea loses focus (e.g. user taps outside
       // or switches focus), save the comment and show a brief "✓ Saved" toast.
       document.getElementById('ann-comment-input').addEventListener('blur', async () => {{
-        if (_cmtCancelling || !_pendingSelection) return;
+        if (_cmtCancelling || (!_pendingSelection && !_pendingUnanchored)) return;
         const sel = _pendingSelection;
+        const unanchored = _pendingUnanchored;
         _pendingSelection = null;
+        _pendingUnanchored = false;
         const comment = document.getElementById('ann-comment-input').value.trim();
         closeSheet('ann-comment-sheet');
         const resp = await fetch('/files-api/annotations', {{
@@ -1314,12 +1487,12 @@ PREVIEW_HTML_TEMPLATE = '''\
           headers: {{ 'Content-Type': 'application/json' }},
           body: JSON.stringify({{
             file: ANN_FILE,
-            selected_text: sel.selectedText,
-            offset_start: sel.offsetStart,
-            offset_end: sel.offsetEnd,
+            selected_text: unanchored ? '' : sel.selectedText,
+            offset_start: unanchored ? null : sel.offsetStart,
+            offset_end: unanchored ? null : sel.offsetEnd,
             type: 'comment',
             comment,
-            author: 'hal',
+            author: getAnnotatorName(),
           }}),
         }});
         if (resp.ok) {{
@@ -1521,16 +1694,129 @@ DIR_HTML_TEMPLATE = '''\
     tr:hover td {{ background: #1c2129; }}
     .icon {{ margin-right: 6px; }}
     .size {{ color: #8b949e; text-align: right; }}
+    .mtime {{ color: #8b949e; text-align: right; white-space: nowrap; }}
+    th[data-key] {{ cursor: pointer; user-select: none; }}
+    th[data-key]:hover {{ color: #c9d1d9; }}
+    .sort-icon {{ display: inline-block; width: 1em; }}
   </style>
 </head>
 <body>
   <div class="header">Index of {path}</div>
   <div class="content">
     <table>
-      <tr><th>Name</th><th class="size">Size</th></tr>
-      {rows}
+      <thead>
+        <tr>
+          <th data-key="name">Name <span class="sort-icon" data-col="name"></span></th>
+          <th data-key="size" class="size">Size <span class="sort-icon" data-col="size"></span></th>
+          <th data-key="mtime" class="mtime">Last Modified <span class="sort-icon" data-col="mtime"></span></th>
+        </tr>
+      </thead>
+      <tbody id="dir-rows"></tbody>
     </table>
   </div>
+
+  <script>
+    const ENTRIES = {entries_json};
+    const HAS_PARENT = {has_parent};
+    const PARENT_HREF = {parent_href};
+
+    let sortKey = 'mtime';
+    let sortDir = 'desc'; // default: most recently modified first
+
+    function fmtSize(bytes) {{
+      if (bytes === null || bytes === undefined) return '—';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0, v = bytes;
+      while (v >= 1024 && i < units.length - 1) {{ v /= 1024; i++; }}
+      return (i === 0 ? v : v.toFixed(1)) + ' ' + units[i];
+    }}
+
+    function fmtMtime(iso) {{
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString();
+    }}
+
+    function makeRow(entry) {{
+      const tr = document.createElement('tr');
+
+      const nameTd = document.createElement('td');
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'icon';
+      iconSpan.textContent = entry.isDir ? '📁' : '📄';
+      const a = document.createElement('a');
+      a.href = entry.href;
+      a.textContent = entry.name;
+      nameTd.appendChild(iconSpan);
+      nameTd.appendChild(a);
+
+      const sizeTd = document.createElement('td');
+      sizeTd.className = 'size';
+      sizeTd.textContent = fmtSize(entry.size);
+
+      const mtimeTd = document.createElement('td');
+      mtimeTd.className = 'mtime';
+      mtimeTd.textContent = fmtMtime(entry.mtime);
+
+      tr.appendChild(nameTd);
+      tr.appendChild(sizeTd);
+      tr.appendChild(mtimeTd);
+      return tr;
+    }}
+
+    function render() {{
+      const sorted = ENTRIES.slice().sort((a, b) => {{
+        let av = a[sortKey], bv = b[sortKey];
+        if (sortKey === 'name') {{ av = av.toLowerCase(); bv = bv.toLowerCase(); }}
+        if (av === null || av === undefined) av = sortKey === 'name' ? '' : -Infinity;
+        if (bv === null || bv === undefined) bv = sortKey === 'name' ? '' : -Infinity;
+        if (av < bv) return sortDir === 'asc' ? -1 : 1;
+        if (av > bv) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      }});
+
+      const tbody = document.getElementById('dir-rows');
+      tbody.textContent = '';
+
+      if (HAS_PARENT) {{
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'icon';
+        iconSpan.textContent = '📁';
+        const a = document.createElement('a');
+        a.href = PARENT_HREF;
+        a.textContent = '..';
+        td.appendChild(iconSpan);
+        td.appendChild(a);
+        tr.appendChild(td);
+        tr.appendChild(document.createElement('td'));
+        tr.appendChild(document.createElement('td'));
+        tbody.appendChild(tr);
+      }}
+
+      sorted.forEach(entry => tbody.appendChild(makeRow(entry)));
+
+      document.querySelectorAll('.sort-icon').forEach(el => {{
+        const col = el.dataset.col;
+        el.textContent = col === sortKey ? (sortDir === 'asc' ? '▲' : '▼') : '';
+      }});
+    }}
+
+    document.querySelectorAll('th[data-key]').forEach(th => {{
+      th.addEventListener('click', () => {{
+        const key = th.dataset.key;
+        if (sortKey === key) {{
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        }} else {{
+          sortKey = key;
+          sortDir = key === 'name' ? 'asc' : 'desc';
+        }}
+        render();
+      }});
+    }});
+
+    render();
+  </script>
 </body>
 </html>
 '''
@@ -1613,8 +1899,39 @@ class GistHandler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, ValueError):
             return None
 
+    def _handle_create_blob(self, parsed):
+        query = urllib.parse.parse_qs(parsed.query)
+        filename = query.get('filename', [None])[0]
+        if not filename or not is_valid_upload_filename(filename):
+            self._send_json(400, {'error': (
+                'filename must be non-empty and must not contain "/", "..", '
+                'a NUL byte, or start with "."'
+            )})
+            return
+
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length) if length else b''
+
+        fs_path = None
+        for _ in range(5):
+            blob_id = generate_blob_id()
+            if find_blob_path(blob_id) is None:
+                fs_path = SHARED_DIR / f'{blob_id}-{filename}'
+                break
+        if fs_path is None:
+            self._send_json(500, {'error': 'Could not allocate a unique blob id'})
+            return
+
+        fs_path.write_bytes(body)
+        self._send_json(201, blob_metadata(fs_path))
+
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+
+        if parsed.path == '/files-api/blobs':
+            self._handle_create_blob(parsed)
+            return
+
         if parsed.path != '/files-api/annotations':
             self._send_json(404, {'error': 'Not Found'})
             return
@@ -1624,7 +1941,7 @@ class GistHandler(BaseHTTPRequestHandler):
             self._send_json(400, {'error': 'Invalid JSON'})
             return
 
-        required = {'file', 'selected_text', 'offset_start', 'offset_end', 'type'}
+        required = {'file', 'type'}
         missing = required - body.keys()
         if missing:
             self._send_json(400, {'error': f'Missing fields: {sorted(missing)}'})
@@ -1634,20 +1951,42 @@ class GistHandler(BaseHTTPRequestHandler):
             self._send_json(400, {'error': 'type must be upvote, downvote, or comment'})
             return
 
+        # offset_start/offset_end are optional -- omitted or null means an
+        # "unanchored" annotation (a general comment on the file as a whole,
+        # not tied to a text range, e.g. a comment on an image).
+        offset_start = body.get('offset_start')
+        offset_end = body.get('offset_end')
+        if (offset_start is None) != (offset_end is None):
+            self._send_json(400, {'error': 'offset_start and offset_end must both be set or both omitted/null'})
+            return
+
         ann = _store.add(
             file=str(body['file']),
-            selected_text=str(body['selected_text']),
-            offset_start=int(body['offset_start']),
-            offset_end=int(body['offset_end']),
+            selected_text=str(body.get('selected_text', '')),
+            offset_start=int(offset_start) if offset_start is not None else None,
+            offset_end=int(offset_end) if offset_end is not None else None,
             ann_type=str(body['type']),
             comment=str(body.get('comment', '')),
-            author=str(body.get('author', 'hal')),
+            author=str(body.get('author', 'anonymous')),
         )
         self._send_json(201, ann)
 
     def do_DELETE(self):
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip('/').split('/')
+
+        if len(parts) == 3 and parts[:2] == ['files-api', 'blobs']:
+            blob_id = parts[2]
+            fs_path = find_blob_path(blob_id)
+            if fs_path is None:
+                self._send_json(404, {'error': 'Blob not found'})
+                return
+            fs_path.unlink()
+            _store.delete_by_file(blob_id)
+            self.send_response(204)
+            self.end_headers()
+            return
+
         if len(parts) != 3 or parts[:2] != ['files-api', 'annotations']:
             self._send_json(404, {'error': 'Not Found'})
             return
@@ -1659,6 +1998,31 @@ class GistHandler(BaseHTTPRequestHandler):
             self.end_headers()
         else:
             self._send_json(404, {'error': 'Annotation not found'})
+
+    def do_PUT(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if not parsed.path.startswith('/files-api/blobs/'):
+            self._send_json(404, {'error': 'Not Found'})
+            return
+
+        blob_id = parsed.path[len('/files-api/blobs/'):]
+        if not blob_id or '/' in blob_id:
+            self._send_json(404, {'error': 'Not Found'})
+            return
+
+        fs_path = find_blob_path(blob_id)
+        if fs_path is None:
+            self._send_json(404, {'error': 'Blob not found'})
+            return
+
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length) if length else b''
+        fs_path.write_bytes(body)
+
+        drained = _store.delete_by_file(blob_id)
+        meta = blob_metadata(fs_path)
+        meta['drained_annotations'] = drained
+        self._send_json(200, meta)
 
     def do_PATCH(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1700,9 +2064,23 @@ class GistHandler(BaseHTTPRequestHandler):
             self._send_json(200, _store.get(file_param))
             return
 
+        # Blob API
+        if url_path == '/files-api/blobs':
+            self._send_json(200, list_blobs())
+            return
+
+        if url_path.startswith('/files-api/blobs/'):
+            blob_id = url_path[len('/files-api/blobs/'):]
+            fs_path = find_blob_path(blob_id)
+            if fs_path is None:
+                self._send_json(404, {'error': 'Blob not found'})
+                return
+            self._send_json(200, blob_metadata(fs_path))
+            return
+
         # Strip /files prefix
         if url_path.startswith(PREFIX + '/'):
-            rel_path = url_path[len(PREFIX):]  # e.g. /vcc/send-to-jeeves.tsk.xml
+            rel_path = url_path[len(PREFIX):]  # e.g. /a1b2c3d4-example.md
         elif url_path == PREFIX or url_path == PREFIX + '/':
             rel_path = '/'
         else:
@@ -1759,32 +2137,38 @@ class GistHandler(BaseHTTPRequestHandler):
             return
 
         entries = sorted(fs_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-        rows = []
 
-        # Parent link (if not root /files/)
+        parent_href = ''
         if url_path.rstrip('/') != PREFIX:
-            parent = url_path.rstrip('/').rsplit('/', 1)[0] + '/'
-            rows.append(f'<tr><td><span class="icon">📁</span><a href="{parent}">..</a></td><td class="size">—</td></tr>')
+            parent_href = url_path.rstrip('/').rsplit('/', 1)[0] + '/'
 
+        entries_data = []
         for entry in entries:
-            name = html.escape(entry.name)
-            if entry.is_dir():
-                href = url_path + name + '/'
-                icon = '📁'
-                size_str = '—'
-            else:
-                href = url_path + name
-                icon = '📄'
-                try:
-                    size_str = format_size(entry.stat().st_size)
-                except OSError:
-                    size_str = '—'
-            rows.append(f'<tr><td><span class="icon">{icon}</span><a href="{html.escape(href)}">{name}</a></td><td class="size">{size_str}</td></tr>')
+            parsed = parse_blob_name(entry.name) if entry.is_file() else None
+            display_name = parsed[1] if parsed else entry.name
+            is_dir = entry.is_dir()
+            href = url_path + entry.name + ('/' if is_dir else '')
+            try:
+                st = entry.stat()
+                mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+                size = None if is_dir else st.st_size
+            except OSError:
+                mtime = None
+                size = None
+            entries_data.append({
+                'name': display_name,
+                'href': href,
+                'isDir': is_dir,
+                'size': size,
+                'mtime': mtime,
+            })
 
         path_display = html.escape(url_path)
         body = DIR_HTML_TEMPLATE.format(
             path=path_display,
-            rows='\n      '.join(rows),
+            has_parent='true' if parent_href else 'false',
+            parent_href=json.dumps(parent_href),
+            entries_json=json.dumps(entries_data),
         ).encode('utf-8')
 
         self.send_response(200)
@@ -1795,13 +2179,16 @@ class GistHandler(BaseHTTPRequestHandler):
 
     def build_breadcrumb(self, url_path):
         """Build a breadcrumb trail for the URL path."""
-        parts = url_path.strip('/').split('/')
+        rel_path = url_path[len(PREFIX):] if url_path.startswith(PREFIX) else url_path
+        parts = rel_path.strip('/').split('/')
         crumbs = [f'<a href="{PREFIX}/">/files/</a>']
         accumulated = PREFIX
         for i, part in enumerate(parts):
             accumulated += '/' + part
             if i == len(parts) - 1:
-                crumbs.append(html.escape(part))
+                parsed = parse_blob_name(part)
+                display = parsed[1] if parsed else part
+                crumbs.append(html.escape(display))
             else:
                 crumbs.append(f'<a href="{html.escape(accumulated + "/")}">{html.escape(part)}/</a>')
         return ' '.join(crumbs)
@@ -1809,7 +2196,8 @@ class GistHandler(BaseHTTPRequestHandler):
     def serve_preview(self, fs_path, url_path):
         stat = fs_path.stat()
         size = stat.st_size
-        filename = fs_path.name
+        parsed_blob = parse_blob_name(fs_path.name)
+        filename = parsed_blob[1] if parsed_blob else fs_path.name
 
         mime, _ = mimetypes.guess_type(str(fs_path))
         if not mime:
@@ -1842,6 +2230,15 @@ class GistHandler(BaseHTTPRequestHandler):
                     import json as _json
                     try:
                         text = _json.dumps(_json.loads(text), indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
+                elif lang == 'xml':
+                    try:
+                        import xml.dom.minidom as _minidom
+                        pretty = _minidom.parseString(text).toprettyxml(indent='  ')
+                        # toprettyxml leaves blank lines between text-only nodes;
+                        # strip them so already-formatted XML doesn't get sparser.
+                        text = '\n'.join(line for line in pretty.splitlines() if line.strip())
                     except Exception:
                         pass
                 escaped = html.escape(text)
@@ -1896,7 +2293,7 @@ class GistHandler(BaseHTTPRequestHandler):
             wrap_btn = ''
 
         breadcrumb = self.build_breadcrumb(url_path)
-        ann_file_key = url_path[len(PREFIX):]
+        ann_file_key = parsed_blob[0] if parsed_blob else url_path[len(PREFIX):]
 
         page = PREVIEW_HTML_TEMPLATE.format(
             title=html.escape(filename),
@@ -1920,6 +2317,7 @@ class GistHandler(BaseHTTPRequestHandler):
 
 # ── 8. Entry point ─────────────────────────────────────────
 if __name__ == '__main__':
+    SHARED_DIR.mkdir(parents=True, exist_ok=True)
     handler = GistHandler
     with ThreadingHTTPServer(('127.0.0.1', PORT), handler) as httpd:
         print(f'[file-share] Serving {SHARED_DIR} on 127.0.0.1:{PORT} at prefix {PREFIX}/', flush=True)

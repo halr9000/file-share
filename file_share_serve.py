@@ -1775,6 +1775,19 @@ class GistHandler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip('/').split('/')
+
+        if len(parts) == 3 and parts[:2] == ['files-api', 'blobs']:
+            blob_id = parts[2]
+            fs_path = find_blob_path(blob_id)
+            if fs_path is None:
+                self._send_json(404, {'error': 'Blob not found'})
+                return
+            fs_path.unlink()
+            _store.delete_by_file(blob_id)
+            self.send_response(204)
+            self.end_headers()
+            return
+
         if len(parts) != 3 or parts[:2] != ['files-api', 'annotations']:
             self._send_json(404, {'error': 'Not Found'})
             return

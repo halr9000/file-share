@@ -234,6 +234,36 @@ class TestBlobAPI(unittest.TestCase):
         status, body = self._put_blob('deadbeef', b'x')
         self.assertEqual(status, 404)
 
+    def _delete(self, path: str):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        conn.request('DELETE', path)
+        resp = conn.getresponse()
+        resp.read()
+        return resp.status
+
+    def test_delete_removes_file_and_cascades_annotations(self):
+        _, blob = self._post_blob('del.md', b'x')
+        self._post_annotation(blob['id'])
+
+        status = self._delete(f'/files-api/blobs/{blob["id"]}')
+        self.assertEqual(status, 204)
+
+        get_status, _ = self._get(f'/files-api/blobs/{blob["id"]}')
+        self.assertEqual(get_status, 404)
+        _, remaining = self._get(f'/files-api/annotations?file={blob["id"]}')
+        self.assertEqual(remaining, [])
+
+    def test_delete_unknown_id_returns_404(self):
+        status = self._delete('/files-api/blobs/deadbeef')
+        self.assertEqual(status, 404)
+
+    def test_deleting_same_blob_twice_returns_404_on_second_call(self):
+        _, blob = self._post_blob('double-del.md', b'x')
+        first_status = self._delete(f'/files-api/blobs/{blob["id"]}')
+        second_status = self._delete(f'/files-api/blobs/{blob["id"]}')
+        self.assertEqual(first_status, 204)
+        self.assertEqual(second_status, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

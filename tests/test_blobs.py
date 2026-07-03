@@ -7,6 +7,7 @@ import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import file_share_serve as fss
@@ -150,6 +151,15 @@ class TestBlobAPI(unittest.TestCase):
         resp = conn.getresponse()
         self.assertEqual(resp.status, 400)
         resp.read()
+
+    def test_post_retries_on_id_collision_with_different_filename(self):
+        _, first = self._post_blob('existing.md', b'first')
+        colliding_id = first['id']
+        with patch.object(fss, 'generate_blob_id', side_effect=[colliding_id, 'ffffffff']):
+            status, second = self._post_blob('other.md', b'second')
+        self.assertEqual(status, 201)
+        self.assertEqual(second['id'], 'ffffffff')
+        self.assertNotEqual(second['id'], colliding_id)
 
 
 if __name__ == '__main__':

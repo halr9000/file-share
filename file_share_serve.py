@@ -1715,9 +1715,8 @@ class GistHandler(BaseHTTPRequestHandler):
         fs_path = None
         for _ in range(5):
             blob_id = generate_blob_id()
-            candidate = SHARED_DIR / f'{blob_id}-{filename}'
-            if not candidate.exists():
-                fs_path = candidate
+            if find_blob_path(blob_id) is None:
+                fs_path = SHARED_DIR / f'{blob_id}-{filename}'
                 break
         if fs_path is None:
             self._send_json(500, {'error': 'Could not allocate a unique blob id'})

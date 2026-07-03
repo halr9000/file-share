@@ -1110,10 +1110,15 @@ PREVIEW_HTML_TEMPLATE = '''\
       }});
 
       const flyout = document.getElementById('toc-flyout');
-      flyout.innerHTML = Array.from(headers).map(h => {{
+      flyout.textContent = '';
+      headers.forEach(h => {{
         const level = parseInt(h.tagName[1]);
-        return `<a class="toc-item toc-level-${{level}}" href="#${{h.id}}">${{h.textContent}}</a>`;
-      }}).join('');
+        const a = document.createElement('a');
+        a.className = `toc-item toc-level-${{level}}`;
+        a.href = `#${{h.id}}`;
+        a.textContent = h.textContent;
+        flyout.appendChild(a);
+      }});
 
       const fab = document.getElementById('toc-fab');
       fab.style.display = 'flex';
@@ -1693,8 +1698,9 @@ DIR_HTML_TEMPLATE = '''\
     tr:last-child td {{ border-bottom: none; }}
     tr:hover td {{ background: #1c2129; }}
     .icon {{ margin-right: 6px; }}
-    .size {{ color: #8b949e; text-align: right; }}
-    .mtime {{ color: #8b949e; text-align: right; white-space: nowrap; }}
+    .name {{ overflow-wrap: anywhere; }}
+    .size {{ color: #8b949e; text-align: right; white-space: nowrap; width: 1%; }}
+    .mtime {{ color: #8b949e; text-align: right; white-space: nowrap; width: 1%; }}
     th[data-key] {{ cursor: pointer; user-select: none; }}
     th[data-key]:hover {{ color: #c9d1d9; }}
     .sort-icon {{ display: inline-block; width: 1em; }}
@@ -1736,13 +1742,33 @@ DIR_HTML_TEMPLATE = '''\
       return new Date(iso).toLocaleString();
     }}
 
+    const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico']);
+    const VIDEO_EXTS = new Set(['mp4', 'webm', 'mkv', 'avi', 'mov']);
+    const DOC_EXTS = new Set(['txt', 'md']);
+    const CODE_EXTS = new Set([
+      'py', 'sh', 'bash', 'zsh', 'js', 'ts', 'tsx', 'jsx', 'yaml', 'yml',
+      'toml', 'ini', 'cfg', 'conf', 'css', 'html', 'htm', 'sql', 'rs', 'go',
+      'c', 'cpp', 'h', 'java', 'rb', 'lua', 'json', 'xml',
+    ]);
+
+    function fileIcon(name) {{
+      const dot = name.lastIndexOf('.');
+      const ext = dot === -1 ? '' : name.slice(dot + 1).toLowerCase();
+      if (IMAGE_EXTS.has(ext)) return '🖼️';
+      if (VIDEO_EXTS.has(ext)) return '🎬';
+      if (CODE_EXTS.has(ext)) return '💻';
+      if (DOC_EXTS.has(ext)) return '📝';
+      return '📄';
+    }}
+
     function makeRow(entry) {{
       const tr = document.createElement('tr');
 
       const nameTd = document.createElement('td');
+      nameTd.className = 'name';
       const iconSpan = document.createElement('span');
       iconSpan.className = 'icon';
-      iconSpan.textContent = entry.isDir ? '📁' : '📄';
+      iconSpan.textContent = entry.isDir ? '📁' : fileIcon(entry.name);
       const a = document.createElement('a');
       a.href = entry.href;
       a.textContent = entry.name;
@@ -1780,6 +1806,7 @@ DIR_HTML_TEMPLATE = '''\
       if (HAS_PARENT) {{
         const tr = document.createElement('tr');
         const td = document.createElement('td');
+        td.className = 'name';
         const iconSpan = document.createElement('span');
         iconSpan.className = 'icon';
         iconSpan.textContent = '📁';

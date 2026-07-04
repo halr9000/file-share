@@ -50,6 +50,7 @@ _argv1 = sys.argv[1] if len(sys.argv) > 1 else None
 PORT = int(_argv1) if (_argv1 is not None and _argv1.isdigit()) else int(os.environ.get('PORT', '3458'))
 SHARED_DIR = Path(os.environ.get('FILE_SHARE_DIR', './shared'))
 PREFIX = '/files'
+MAX_UPLOAD_BYTES = int(os.environ.get('FILE_SHARE_MAX_UPLOAD_BYTES', 100 * 1024 * 1024))  # 100 MB default
 
 # MIME types for syntax highlighting language detection
 HIGHLIGHT_LANG_MAP = {
@@ -2121,13 +2122,41 @@ class GistHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_limited_body(self) -> bytes | None:
+        """Read the request body, rejecting it before buffering into memory
+        if Content-Length is missing/invalid or exceeds MAX_UPLOAD_BYTES.
+
+        Sends the error response itself; callers should return immediately
+        when this returns None. Closes the connection in that case since
+        any unread body bytes would otherwise be misparsed as the start of
+        the next keep-alive request.
+        """
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            length = -1
+        if length < 0:
+            self._send_json(400, {'error': 'Invalid Content-Length'})
+            self.close_connection = True
+            return None
+        if length > MAX_UPLOAD_BYTES:
+            self._send_json(413, {'error': f'Request body exceeds {MAX_UPLOAD_BYTES} byte limit'})
+            self.close_connection = True
+            return None
+        return self.rfile.read(length) if length else b''
+
     def _read_json_body(self) -> dict | None:
-        length = int(self.headers.get('Content-Length', 0))
-        if length == 0:
+        """Returns the parsed body, or None if a response was already sent
+        (body too large, or invalid JSON) -- callers should just return."""
+        body = self._read_limited_body()
+        if body is None:
+            return None
+        if not body:
             return {}
         try:
-            return json.loads(self.rfile.read(length))
+            return json.loads(body)
         except (json.JSONDecodeError, ValueError):
+            self._send_json(400, {'error': 'Invalid JSON'})
             return None
 
     def _handle_create_blob(self, parsed):
@@ -2140,8 +2169,9 @@ class GistHandler(BaseHTTPRequestHandler):
             )})
             return
 
-        length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(length) if length else b''
+        body = self._read_limited_body()
+        if body is None:
+            return
 
         fs_path = None
         for _ in range(5):
@@ -2169,7 +2199,6 @@ class GistHandler(BaseHTTPRequestHandler):
 
         body = self._read_json_body()
         if body is None:
-            self._send_json(400, {'error': 'Invalid JSON'})
             return
 
         required = {'file', 'type'}
@@ -2246,8 +2275,9 @@ class GistHandler(BaseHTTPRequestHandler):
             self._send_json(404, {'error': 'Blob not found'})
             return
 
-        length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(length) if length else b''
+        body = self._read_limited_body()
+        if body is None:
+            return
         fs_path.write_bytes(body)
 
         drained = _store.delete_by_file(blob_id)

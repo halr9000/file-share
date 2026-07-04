@@ -175,6 +175,16 @@ class TestAnnotationAPI(unittest.TestCase):
         self.assertEqual(body['comment'], payload)
         self.assertEqual(body['author'], payload)
 
+    def test_post_rejects_body_exceeding_max_upload_bytes(self):
+        conn = http.client.HTTPConnection('127.0.0.1', self.port)
+        oversized = fss.MAX_UPLOAD_BYTES + 1
+        conn.request('POST', '/files-api/annotations', body=b'x',
+                     headers={'Content-Type': 'application/json',
+                              'Content-Length': str(oversized)})
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 413)
+        resp.read()
+
     def test_post_validates_required_fields(self):
         status, body = self._post({'file': '/test.md'})
         self.assertEqual(status, 400)
